@@ -1,0 +1,90 @@
+{
+  "name": "vagabs",
+  "productName": "Vagabs",
+  "version": "0.1.0",
+  "description": "Sua busca de emprego organizada, com o seu próprio Claude Code.",
+  "author": "Gab",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "app/main.js",
+  "scripts": {
+    "start": "electron .",
+    "conferir": "node ferramentas/conferir.js",
+    "pacote": "node ferramentas/conferir.js && electron-builder --win nsis --publish never && node ferramentas/conferir.js --pacote",
+    "publicar": "node ferramentas/conferir.js && electron-builder --win nsis --publish always && node ferramentas/conferir.js --pacote"
+  },
+  "vagabs": {
+    "github": {
+      "owner": "gabavares",
+      "repo": "vagabs"
+    }
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/xterm": "5.5.0",
+    "electron-updater": "6.8.9",
+    "node-pty": "1.1.0"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.16.1"
+  },
+  "build": {
+    "appId": "com.vagabs.app",
+    "productName": "Vagabs",
+    "copyright": "Com amor, Gab <3",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "app/**",
+      "nucleo/**",
+      "mcp/**",
+      "front/**",
+      "modelos/**",
+      "novidades.json",
+      "package.json",
+      "node_modules/@xterm/xterm/lib/xterm.js",
+      "node_modules/@xterm/xterm/css/xterm.css",
+      "node_modules/@xterm/addon-fit/lib/addon-fit.js"
+    ],
+    "asarUnpack": [
+      "nucleo/**",
+      "mcp/**",
+      "node_modules/node-pty/**"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icone.ico",
+      "artifactName": "Vagabs-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Vagabs",
+      "deleteAppDataOnUninstall": false,
+      "language": "1046",
+      "installerIcon": "build/icone.ico",
+      "uninstallerIcon": "build/icone.ico",
+      "include": "build/instalador.nsh"
+    },
+    "npmRebuild": false,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "gabavares",
+        "repo": "vagabs",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gabavares/vagabs.git"
+  }
+}

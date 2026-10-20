@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'">
+<title>Vagabs</title>
+<link rel="icon" href="assets/icone.png">
+<link rel="preload" href="assets/fonts/HankenGrotesk.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/vagabs.css">
+<link rel="stylesheet" href="assets/pecas.css">
+<link rel="stylesheet" href="vendor/xterm.css">
+</head>
+<body>
+<div class="chao" aria-hidden="true"><i class="plano p1"></i><i class="plano p2"></i><i class="plano p3"></i><i class="plano p4"></i></div>
+<header class="barra">
+  <a class="marca" href="#/hoje" aria-label="Vagabs, início">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7.5 9.5 16 24l8.5-14.5" stroke="#fff" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24.5" cy="9.5" r="3.6" fill="#e39b00"/></svg>
+    <span>vagabs</span>
+  </a>
+  <nav class="nav" id="nav" aria-label="Principal"></nav>
+  <div class="direita">
+    <div id="trabalho" class="trabalho"></div>
+    <button type="button" id="carimbo" class="carimbo-btn" title="Ver varreduras"></button>
+    <a class="avatar" id="avatar" href="#/config" title="Configurações" aria-label="Configurações"></a>
+  </div>
+</header>
+<main class="app" id="app" tabindex="-1"></main>
+<footer class="assinatura">Com amor, Gab &lt;3</footer>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div id="camada"></div>
+<div id="tutorial"></div>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="assets/app.js"></script>
+<script src="assets/setup.js"></script>
+<script src="assets/extras.js"></script>
+</body>
+</html>

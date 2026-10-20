@@ -138,10 +138,22 @@ const ROTAS = {
     if (Array.isArray(d.empresas)) d.empresas.forEach((e) => { try { db.adicionar("empresas", e); } catch {} });
     db.objeto("config", { ...d.config, setup: { concluido: true, quando: new Date().toISOString() } });
     pasta.gerarClaudeMd(db.pasta, db, { forcar: !!d.refazer });
+    // modo teste: a frase em qualquer campo do setup pula a preparação pelo Claude
+    if (trab.ehTeste(JSON.stringify(d))) d.preparar = false;
     if (d.preparar) trab.preparar({ sugerirEmpresas: !!d.sugerirEmpresas, temDocumentos: fs.readdirSync(path.join(db.pasta, "documentos")).length > 0 });
     else trab.garantirExemplo();
     return { ok: true };
   },
+  "GET /api/conversa": () => (db ? trab.conversa() : { mensagens: [] }),
+  "POST /api/conversa/enviar": async (req) => {
+    if (!db) throw new Error("sem pasta");
+    const { texto } = await lerJson(req);
+    if (trab.ocupado()) return { ok: false, motivo: est.vivo.execucao?.tipo === "conversa" ? "O Claude ainda está respondendo." : "O Claude está ocupado com a fila ou a varredura. A conversa volta quando ele terminar." };
+    trab.conversar(texto);
+    return { ok: true, ocupado: trab.ocupado() }; // false no modo teste: a resposta já está pronta
+  },
+  "POST /api/conversa/nova": () => trab.novaConversa(),
+  "POST /api/conversa/parar": () => ({ ok: trab.cancelar() }),
   "POST /api/exemplo/criar": () => ({ criado: trab.garantirExemplo() }),
   "POST /api/exemplo/apagar": () => {
     const ids = db.ler("vagas").filter((v) => v.exemplo).map((v) => v.id);

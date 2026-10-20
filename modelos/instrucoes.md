@@ -19,7 +19,7 @@ Este arquivo é do app e é trocado a cada atualização. O que é da pessoa fic
 | Coleção | Tipo | O que é |
 |---|---|---|
 | `perfil` | objeto | nome, cidade, contato, linkedin, cargo_atual, resumo, trajetoria[], formacao, idiomas[] |
-| `preferencias` | objeto | setor, cargos[], senioridade, contratos[], contrato_preferido, modelos[], cidades[], muda_cidade, faixa_minima, idiomas[], criterios[{nome, peso}], dimensoes[{nome, peso}], empresas_tipo[], evitar[] |
+| `preferencias` | objeto | setores[] (e setor, o mesmo em texto), cargos[], senioridades[] (e senioridade, em texto), contratos[], contrato_preferido, modelos[], cidades[], muda_cidade, faixa_minima, idiomas[], criterios[{nome, peso}], dimensoes[{nome, peso}], empresas_tipo[], evitar[] |
 | `sigilo` | objeto | ativo, empregador, bloqueio[], alerta[] |
 | `config` | objeto | varredura {termos[], palavras_titulo[], excluir_titulo[], local, corte, fontes}, email {modo}, claude {modelo} |
 | `feitos` | lista | {id: F01…, grupo, texto, numeros, confirmar, confirmado, uso: cv/entrevista/nao, fonte} |

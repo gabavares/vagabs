@@ -33,15 +33,17 @@
     ["formato", "Formato"], ["material", "Seu material"], ["importa", "O que importa"], ["empresas", "Empresas"], ["sigilo", "Sigilo"], ["fontes", "Fontes e e-mail"], ["pronto", "Pronto"],
   ];
 
-  let r = null, passo = 0, ocupado = false, sondagem = null;
-  const salvarRascunho = () => { try { localStorage.setItem(RASCUNHO, JSON.stringify({ r, passo })); } catch {} };
+  let r = null, passo = 0, maximo = 0, ocupado = false, sondagem = null;
+  const salvarRascunho = () => { try { localStorage.setItem(RASCUNHO, JSON.stringify({ r, passo, maximo })); } catch {} };
   function rascunho() {
     if (r) return;
-    try { const s = JSON.parse(localStorage.getItem(RASCUNHO) || "null"); if (s?.r) { r = s.r; passo = s.passo || 0; } } catch {}
+    try { const s = JSON.parse(localStorage.getItem(RASCUNHO) || "null"); if (s?.r) { r = s.r; passo = s.passo || 0; maximo = Math.max(passo, s.maximo || 0); } } catch {}
+    // rascunho de versão antiga: setor e senioridade eram um só
+    if (r && !Array.isArray(r.setores)) { r.setores = r.setor ? [r.setor] : []; r.senioridades = r.senioridade ? [r.senioridade] : []; delete r.setor; delete r.senioridade; }
     const P = VG.db.perfil || {}, R = VG.db.preferencias || {}, S = VG.db.sigilo || {}, C = VG.db.config || {};
     r = r || {
       nome: P.nome || "", cidade: P.cidade || "", email: P.email || "", telefone: P.telefone || "", linkedin: P.linkedin || "",
-      setor: R.setor || "", cargos: R.cargos || [], senioridade: R.senioridade || "",
+      setores: R.setores || (R.setor ? [R.setor] : []), cargos: R.cargos || [], senioridades: R.senioridades || (R.senioridade ? [R.senioridade] : []),
       contratos: R.contratos || ["CLT"], contrato_preferido: R.contrato_preferido || "CLT", modelos: R.modelos || ["Híbrido", "Remoto"], cidades: R.cidades || [], muda_cidade: !!R.muda_cidade, faixa_minima: R.faixa_minima || "", idiomas: R.idiomas || [],
       criterios: (R.criterios || []).map((c) => c.nome), pesos: Object.fromEntries((R.criterios || []).map((c) => [c.nome, c.peso])),
       empresas: (VG.db.empresas || []).filter((e) => e.prioridade !== "bloqueio").map((e) => e.nome), empresas_tipo: R.empresas_tipo || [], sugerir: !(VG.db.empresas || []).length,
@@ -84,12 +86,12 @@
     if (id === "voce") return `<h1 class="setup-h">Primeiro: quem é você, vagabs?</h1><p class="frase">Vai nas candidaturas. Fica só aqui.</p>
       <div class="campos-setup">${campo("nome", "Nome completo", "Como aparece no CV")}${campo("cidade", "Cidade onde mora", "Ex.: Belo Horizonte, MG")}${campo("email", "E-mail para candidaturas", "seu e-mail pessoal", "email")}${campo("telefone", "Telefone", "(11) 90000-0000", "tel")}${campo("linkedin", "LinkedIn (link)", "linkedin.com/in/…")}</div>`;
     if (id === "area") {
-      const sugestoes = SETORES[r.setor] || [];
+      const sugestoes = r.setores.flatMap((x) => SETORES[x] || []);
       const cargos = [...new Set([...sugestoes, ...r.cargos])];
       return `<h1 class="setup-h">Qual é a sua área?</h1>
-        <h3 class="setup-sub">Setor</h3>${fichas("setor", [...new Set([...Object.keys(SETORES), ...(r.setor && !SETORES[r.setor] ? [r.setor] : [])])], r.setor, { multi: false })}${outro("setor", "Outra área")}
-        <h3 class="setup-sub">Cargos que você busca <span class="meta">(marque quantos quiser)</span></h3>${cargos.length ? fichas("cargos", cargos, r.cargos) : `<p class="meta">Escolha o setor para ver sugestões, ou escreva abaixo.</p>`}${outro("cargos", "Outro cargo (ex.: Analista de BI)")}
-        <h3 class="setup-sub">Senioridade</h3>${fichas("senioridade", SENIORIDADE, r.senioridade, { multi: false })}`;
+        <h3 class="setup-sub">Setor <span class="meta">(marque quantos quiser)</span></h3>${fichas("setores", [...new Set([...Object.keys(SETORES), ...r.setores])], r.setores)}${outro("setores", "Outra área")}
+        <h3 class="setup-sub">Cargos que você busca <span class="meta">(marque quantos quiser)</span></h3>${cargos.length ? fichas("cargos", cargos, r.cargos) : `<p class="meta">Escolha um setor para ver sugestões, ou escreva abaixo.</p>`}${outro("cargos", "Outro cargo (ex.: Analista de BI)")}
+        <h3 class="setup-sub">Senioridade <span class="meta">(pode marcar mais de uma)</span></h3>${fichas("senioridades", SENIORIDADE, r.senioridades)}`;
     }
     if (id === "formato") return `<h1 class="setup-h">Que tipo de vaga serve?</h1>
       <h3 class="setup-sub">Contrato que você aceita</h3>${fichas("contratos", CONTRATOS, r.contratos)}${outro("contratos", "Outro tipo")}
@@ -133,7 +135,7 @@
         <div class="botoes"><button class="btn" type="button" data-testar-gmail>${ic("atualizar")}Testar o Gmail</button>${g ? (g.conectado && g.ferramentas.length ? `<span class="ok-linha">${ic("check")}Gmail conectado.</span>` : `<span class="aviso-linha">${ic("alerta")}Ainda não achei o Gmail na sua conta Claude.</span>`) : ""}</div></div>` : ""}`;
     }
     if (id === "pronto") {
-      const linhas = [["Você", [r.nome, r.cidade].filter(Boolean).join(" · ")], ["Área", [r.setor, r.senioridade].filter(Boolean).join(" · ")], ["Cargos", r.cargos.join(", ")], ["Contrato e modelo", [r.contratos.join(", "), r.modelos.join(", ")].join(" · ")], ["Cidades", r.cidades.join(", ") + (r.muda_cidade ? " (aceita mudar)" : "")], ["O que importa", r.criterios.map((c) => (r.pesos[c] === 2 ? `${c} ×2` : c)).join(", ")], ["Empresas", r.empresas.join(", ") + (r.sugerir ? (r.empresas.length ? " + sugestões do Claude" : "Sugestões do Claude") : "")], ["Sigilo", r.sigilo ? `ligado${r.empregador ? ` (${r.empregador})` : ""}` : "desligado"], ["E-mail", r.email === "gmail" ? "pelo Gmail" : "à mão"]];
+      const linhas = [["Você", [r.nome, r.cidade].filter(Boolean).join(" · ")], ["Área", [r.setores.join(", "), r.senioridades.join(", ")].filter(Boolean).join(" · ")], ["Cargos", r.cargos.join(", ")], ["Contrato e modelo", [r.contratos.join(", "), r.modelos.join(", ")].join(" · ")], ["Cidades", r.cidades.join(", ") + (r.muda_cidade ? " (aceita mudar)" : "")], ["O que importa", r.criterios.map((c) => (r.pesos[c] === 2 ? `${c} ×2` : c)).join(", ")], ["Empresas", r.empresas.join(", ") + (r.sugerir ? (r.empresas.length ? " + sugestões do Claude" : "Sugestões do Claude") : "")], ["Sigilo", r.sigilo ? `ligado${r.empregador ? ` (${r.empregador})` : ""}` : "desligado"], ["E-mail", r.email === "gmail" ? "pelo Gmail" : "à mão"]];
       return `<h1 class="setup-h">Tudo certo, vagabs. Bora?</h1>
         <div class="lista-kv resumo-setup">${linhas.map(([k, v]) => `<div><span>${k}</span><b>${esc(v || "—")}</b></div>`).join("")}</div>
         <div class="caixa-info"><p>Ao clicar em <b>Começar</b>, o Claude ${VG.estado.claude?.logado ? "lê o seu material, monta o perfil e os feitos, prepara os termos de busca e cria uma <b>vaga de exemplo</b> para o tutorial. Leva alguns minutos e usa um pouco do seu plano." : "ainda não está conectado: o Vagabs cria a vaga de exemplo sozinho e você pede a preparação depois."}</p></div>`;
@@ -148,7 +150,7 @@
     if (id === "claude") return e.claude?.instalado ? null : "Instale o Claude Code para seguir.";
     if (id === "conectar") return e.claude?.logado ? null : "Faça o login para seguir.";
     if (id === "voce") return r.nome.trim() ? null : "Escreva pelo menos o seu nome.";
-    if (id === "area") return r.setor && r.cargos.length && r.senioridade ? null : "Escolha o setor, pelo menos um cargo e a senioridade.";
+    if (id === "area") return r.setores.length && r.cargos.length && r.senioridades.length ? null : "Escolha pelo menos um setor, um cargo e uma senioridade.";
     if (id === "formato") return r.contratos.length && r.modelos.length && (r.cidades.length || r.modelos.includes("Remoto")) ? null : "Marque contrato, modelo e pelo menos uma cidade (ou remoto).";
     return null;
   }
@@ -160,7 +162,7 @@
     const prox = passo < PASSOS.length - 1;
     return `<section class="setup">
       <aside class="setup-trilha"><div class="marca-setup"><svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#121417"/><path d="M7.5 9.5 16 24l8.5-14.5" stroke="#fff" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24.5" cy="9.5" r="3.6" fill="#e39b00"/></svg><b>vagabs</b></div>
-        <ol>${PASSOS.map(([pid, rot], i) => `<li class="${i < passo ? "passou" : ""} ${i === passo ? "on" : ""}"><button type="button" data-ir="${i}" ${i > passo ? "disabled" : ""}><span class="check">${ic("check")}</span>${esc(rot)}</button></li>`).join("")}</ol>
+        <ol>${PASSOS.map(([pid, rot], i) => `<li class="${i <= maximo && i !== passo ? "passou" : ""} ${i === passo ? "on" : ""}"><button type="button" data-ir="${i}" ${i > maximo ? "disabled" : ""}><span class="check">${ic("check")}</span>${esc(rot)}</button></li>`).join("")}</ol>
         <p class="meta">Passo ${passo + 1} de ${PASSOS.length}</p></aside>
       <div class="setup-cartao painel">
         <div class="setup-corpo">${corpo(id)}</div>
@@ -180,7 +182,7 @@
     }
     const falta = pular ? null : podeSeguir(id);
     if (falta) return aviso(falta);
-    passo = Math.min(PASSOS.length - 1, passo + 1); salvarRascunho(); VG.render(true); aoEntrar();
+    passo = Math.min(PASSOS.length - 1, passo + 1); maximo = Math.max(maximo, passo); salvarRascunho(); VG.render(true); aoEntrar();
   }
   const aviso = (t) => { const a = document.getElementById("setup-aviso"); if (a) { a.textContent = t; a.classList.add("on"); } };
 
@@ -209,7 +211,8 @@
     const nomes = (l) => [...new Set(l.map((s) => s.trim()).filter(Boolean))];
     const criterios = r.criterios.map((nome) => ({ nome, peso: r.pesos[nome] || 1 }));
     const dimensoes = [{ nome: "Cargo e senioridade", peso: 2 }, { nome: "Área e setor", peso: 2 }, { nome: "Encaixe com os feitos", peso: 1 }, { nome: "Contrato", peso: 1 }, { nome: "Local e modelo", peso: 1 }, ...criterios.filter((c) => !/remoto|perto de casa/i.test(c.nome))].slice(0, 9);
-    const idx = SENIORIDADE.indexOf(r.senioridade);
+    // filtro de título: abaixo do nível mais baixo marcado nunca serve
+    const idx = Math.min(...r.senioridades.map((x) => SENIORIDADE.indexOf(x)).filter((i) => i >= 0), 99);
     const excluir = [...(idx >= 2 ? ["estagio", "estagiario", "trainee", "aprendiz", "jovem aprendiz"] : []), ...(idx >= 5 ? ["junior", "jr", "assistente", "auxiliar"] : [])];
     const existentes = new Set((VG.db.empresas || []).map((e) => e.nome.toLowerCase()));
     let n = (VG.db.empresas || []).reduce((m, e) => Math.max(m, parseInt(String(e.id).slice(1), 10) || 0), 0);
@@ -218,14 +221,15 @@
     const corpoSetup = {
       refazer: !!cfgAntes.setup?.concluido,
       perfil: { nome: r.nome.trim(), cidade: r.cidade, email: r.email, telefone: r.telefone, linkedin: r.linkedin, idiomas: r.idiomas },
-      preferencias: { setor: r.setor, cargos: r.cargos, senioridade: r.senioridade, contratos: r.contratos, contrato_preferido: r.contrato_preferido, modelos: r.modelos, cidades: r.cidades, muda_cidade: r.muda_cidade, faixa_minima: r.faixa_minima, idiomas: r.idiomas, criterios, empresas_tipo: r.empresas_tipo, ...(VG.db.preferencias?.dimensoes?.length ? {} : { dimensoes }) },
+      preferencias: { setores: r.setores, setor: r.setores.join(", "), cargos: r.cargos, senioridades: r.senioridades, senioridade: r.senioridades.join(", "), contratos: r.contratos, contrato_preferido: r.contrato_preferido, modelos: r.modelos, cidades: r.cidades, muda_cidade: r.muda_cidade, faixa_minima: r.faixa_minima, idiomas: r.idiomas, criterios, empresas_tipo: r.empresas_tipo, ...(VG.db.preferencias?.dimensoes?.length ? {} : { dimensoes }) },
       sigilo: { ativo: r.sigilo, empregador: r.sigilo ? r.empregador.trim() : "", bloqueio: r.sigilo ? nomes([r.empregador, ...r.bloqueio]) : [], alerta: r.sigilo ? nomes(r.alerta) : [] },
       empresas,
       config: {
         varredura: { ...cfgAntes.varredura, termos: cfgAntes.varredura?.termos?.length ? cfgAntes.varredura.termos : r.cargos.slice(0, 10), local: r.cidades[0] ? `${r.cidades[0]}, Brazil` : "Brazil", corte: r.corte, fontes: r.fontes, excluir_titulo: cfgAntes.varredura?.excluir_titulo || excluir, palavras_titulo: cfgAntes.varredura?.palavras_titulo || [] },
         email: { ...cfgAntes.email, modo: r.email }, claude: { ...cfgAntes.claude, modelo: r.modelo },
       },
-      preparar: !!VG.estado.claude?.logado && !cfgAntes.setup?.concluido,
+      // "miojo de chocolate" em qualquer campo = modo teste: não chama o Claude
+      preparar: !!VG.estado.claude?.logado && !cfgAntes.setup?.concluido && !/miojo de chocolate/i.test(JSON.stringify(r)),
       sugerirEmpresas: r.sugerir,
     };
     try {
@@ -245,7 +249,12 @@
     raiz.querySelector("[data-pular]")?.addEventListener("click", () => seguir(true));
     raiz.querySelector("[data-voltar]")?.addEventListener("click", () => { passo = Math.max(0, passo - 1); salvarRascunho(); VG.render(true); aoEntrar(); });
     raiz.querySelector("[data-concluir]")?.addEventListener("click", concluir);
-    raiz.querySelectorAll("[data-ir]").forEach((b) => b.addEventListener("click", () => { passo = +b.dataset.ir; salvarRascunho(); VG.render(true); aoEntrar(); }));
+    // dá para pular para qualquer passo já alcançado; indo para a frente, os passos do meio precisam continuar válidos
+    raiz.querySelectorAll("[data-ir]").forEach((b) => b.addEventListener("click", () => {
+      const alvo = +b.dataset.ir;
+      for (let k = passo; k < alvo; k++) { const falta = podeSeguir(PASSOS[k][0]); if (falta) { if (k !== passo) { passo = k; salvarRascunho(); VG.render(true); aoEntrar(); } return aviso(falta); } }
+      passo = alvo; salvarRascunho(); VG.render(true); aoEntrar();
+    }));
     raiz.querySelectorAll("input[data-k]").forEach((i) => i.addEventListener("input", () => { r[i.dataset.k] = i.value; salvarRascunho(); }));
     raiz.querySelectorAll("input[data-bool]").forEach((i) => i.addEventListener("change", () => { r[i.dataset.bool] = i.checked; salvarRascunho(); VG.render(true); }));
     raiz.querySelectorAll("input[data-num]").forEach((i) => i.addEventListener("input", () => { r[i.dataset.num] = +i.value; document.getElementById("corte-txt").textContent = i.value; salvarRascunho(); }));
@@ -256,16 +265,17 @@
       else if (k === "criterios-peso") {
         // 1º clique marca, 2º dá peso dobrado, 3º desmarca
         if (!r.criterios.includes(v)) { r.criterios.push(v); r.pesos[v] = 1; } else if ((r.pesos[v] || 1) === 1) r.pesos[v] = 2; else { r.criterios = r.criterios.filter((x) => x !== v); delete r.pesos[v]; }
-      } else if (!multi) { r[k] = v; if (k === "setor") r.cargos = r.cargos.filter((c) => !Object.values(SETORES).flat().includes(c) || (SETORES[v] || []).includes(c)); }
+      } else if (!multi) r[k] = v;
       else r[k] = r[k].includes(v) ? r[k].filter((x) => x !== v) : [...r[k], v];
+      // tirou um setor: saem os cargos sugeridos só por ele (os escritos à mão ficam)
+      if (k === "setores") { const sug = r.setores.flatMap((x) => SETORES[x] || []); r.cargos = r.cargos.filter((c) => !Object.values(SETORES).flat().includes(c) || sug.includes(c)); }
       if (k === "contratos" && !r.contratos.includes(r.contrato_preferido)) r.contrato_preferido = r.contratos[0] || "";
       salvarRascunho(); VG.render(true);
     })));
     raiz.querySelectorAll("form[data-outro]").forEach((f) => f.addEventListener("submit", (e) => {
       e.preventDefault(); const v = f.querySelector("input").value.trim(); if (!v) return;
       const k = f.dataset.outro;
-      if (k === "setor") r.setor = v;
-      else if (k === "criterios") { if (!r.criterios.includes(v)) r.criterios.push(v); r.pesos[v] = r.pesos[v] || 1; }
+      if (k === "criterios") { if (!r.criterios.includes(v)) r.criterios.push(v); r.pesos[v] = r.pesos[v] || 1; }
       else if (!r[k].includes(v)) r[k] = [...r[k], v];
       salvarRascunho(); VG.render(true);
       document.querySelector(`form[data-outro="${k}"] input`)?.focus();

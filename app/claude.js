@@ -65,11 +65,17 @@ async function checar() {
 
 /* Execução escondida. Devolve {ok, resultado, limite, custo, log}. `ate` pode ser "init" para parar
    assim que o Claude carregar as ferramentas (checagem sem gastar o plano). */
-function executar({ pasta, prompt, modelo, esforco, ferramentas = [], mcpConfig, sistema, ate = null, aoPasso = () => {}, aoInit = () => {}, sinal }) {
+/* Para o chat: `retomar` continua uma sessão (a conversa lembra do que veio antes) e `aoTexto` recebe o texto
+   enquanto o Claude escreve (pedaço a pedaço; se a versão do Claude Code não mandar pedaços, vem o bloco inteiro). */
+function executar({ pasta, prompt, modelo, esforco, ferramentas = [], mcpConfig, sistema, ate = null, aoPasso = () => {}, aoInit = () => {}, aoTexto = null, retomar = null, sinal }) {
   return new Promise(async (resolve) => {
     const exe = vivo.claude?.caminho || (await onde());
     if (!exe) return resolve({ ok: false, erro: "Claude Code não encontrado" });
-    const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk", "--no-session-persistence"];
+    const conversa = !!aoTexto;
+    const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk"];
+    if (!conversa) args.push("--no-session-persistence"); // só o chat guarda sessão, para poder continuar
+    if (conversa) args.push("--include-partial-messages");
+    if (retomar) args.push("--resume", retomar);
     if (modelo) args.push("--model", modelo);
     if (esforco) args.push("--effort", esforco);
     if (mcpConfig) args.push("--mcp-config", mcpConfig);
@@ -80,7 +86,7 @@ function executar({ pasta, prompt, modelo, esforco, ferramentas = [], mcpConfig,
     if (logArq) fs.mkdirSync(path.dirname(logArq), { recursive: true });
     const log = logArq ? fs.createWriteStream(logArq) : null;
     const filho = spawn(cmd, a, { ...o, cwd: pasta || os.homedir(), windowsHide: true, env: ambiente() });
-    let resto = "", resultado = null, limite = null, init = null, erroTxt = "";
+    let resto = "", resultado = null, limite = null, init = null, erroTxt = "", pedacos = false;
     const parar = () => { try { filho.kill(); } catch {} };
     sinal?.addEventListener?.("abort", parar);
     filho.stdout.on("data", (buf) => {
@@ -94,10 +100,17 @@ function executar({ pasta, prompt, modelo, esforco, ferramentas = [], mcpConfig,
         else if (d.type === "rate_limit_event") {
           vivo.uso = d.rate_limit_info || null; emitir("uso", { uso: vivo.uso });
           if (d.rate_limit_info && !String(d.rate_limit_info.status || "").startsWith("allowed")) limite = d.rate_limit_info;
+        } else if (d.type === "stream_event") {
+          const ev = d.event || {};
+          if (conversa && ev.type === "content_block_delta" && ev.delta?.type === "text_delta" && ev.delta.text) { pedacos = true; aoTexto(ev.delta.text); }
+          if (conversa && ev.type === "message_start") pedacos = false;
         } else if (d.type === "assistant") {
           for (const c of d.message?.content || []) {
             if (c.type === "tool_use") aoPasso({ tipo: "ferramenta", nome: c.name, entrada: c.input });
-            else if (c.type === "text" && c.text?.trim()) aoPasso({ tipo: "texto", texto: c.text.trim() });
+            else if (c.type === "text" && c.text?.trim()) {
+              if (conversa) { if (!pedacos) aoTexto(c.text); }
+              else aoPasso({ tipo: "texto", texto: c.text.trim() });
+            }
           }
         } else if (d.type === "result") resultado = d;
       }
@@ -110,7 +123,7 @@ function executar({ pasta, prompt, modelo, esforco, ferramentas = [], mcpConfig,
       log?.end();
       const texto = `${resultado?.result || ""} ${erroTxt}`.toLowerCase();
       if (!limite && resultado?.is_error && LIMITE_TXT.some((t) => texto.includes(t))) limite = { status: "rejected" };
-      resolve({ ok: !!resultado && !resultado.is_error, codigo, init, resultado: resultado?.result || "", custo: resultado?.total_cost_usd, limite, erro: erroTxt.trim().slice(-1500), log: logArq });
+      resolve({ ok: !!resultado && !resultado.is_error, codigo, init, sessao: resultado?.session_id || init?.session_id || null, resultado: resultado?.result || "", custo: resultado?.total_cost_usd, limite, erro: erroTxt.trim().slice(-1500), log: logArq });
     });
   });
 }

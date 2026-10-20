@@ -658,13 +658,15 @@
   function telaBase(arg) {
     if (arg && ["perfil", "preferencias", "feitos", "sigilo", "documentos"].includes(arg)) abaBase = arg;
     const P = db.perfil, R = db.preferencias, S = db.sigilo;
+    if (!Array.isArray(R.setores) && R.setor) R.setores = [R.setor];
+    if (!Array.isArray(R.senioridades) && R.senioridade) R.senioridades = [R.senioridade];
     const campo = (col, k, rot, dica = "") => `<dt>${rot}</dt><dd><input class="inline" data-col="${col}" data-k="${k}" value="${esc(Array.isArray(db[col][k]) ? db[col][k].join(", ") : db[col][k] ?? "")}" aria-label="${rot}" placeholder="${esc(dica)}"></dd>`;
     const abas = { perfil: "Perfil", preferencias: "Preferências", feitos: "Feitos", sigilo: "Sigilo", documentos: "Documentos" };
     let corpo = "";
     if (abaBase === "perfil") corpo = `${P.resumo ? `<div class="destaque-pos"><h3>Resumo</h3><p class="frase">${esc(P.resumo)}</p>${campoPedido({ tipo: "base", rotulo: "Resumo" }, "Ex.: uma frase mais curta para o título do LinkedIn", { col: "perfil", id: null, campo: ["resumo"] })}${blocoVersao({ col: "perfil", id: null, campo: ["resumo"] })}</div>` : ""}
       <dl class="dl">${campo("perfil", "nome", "Nome")}${campo("perfil", "email", "E-mail para candidaturas")}${campo("perfil", "telefone", "Telefone")}${campo("perfil", "cidade", "Cidade")}${campo("perfil", "linkedin", "LinkedIn")}${campo("perfil", "cargo_atual", "Cargo atual")}${campo("perfil", "formacao", "Formação")}${campo("perfil", "idiomas", "Idiomas", "separe por vírgula")}${campo("perfil", "resumo", "Resumo")}</dl>
       ${lista(P.trajetoria).length ? `<h3 style="margin-top:22px">Trajetória</h3><div class="lista-kv" style="margin-top:8px">${P.trajetoria.map((t) => `<div><span>${esc(t.periodo || "")}</span><b style="flex:1;text-align:right">${esc([t.cargo, t.empresa].filter(Boolean).join(" · "))}</b></div>`).join("")}</div>` : ""}`;
-    if (abaBase === "preferencias") corpo = `<dl class="dl">${campo("preferencias", "setor", "Área")}${campo("preferencias", "cargos", "Cargos", "separe por vírgula")}${campo("preferencias", "senioridade", "Senioridade")}${campo("preferencias", "contratos", "Contratos que aceita", "separe por vírgula")}${campo("preferencias", "contrato_preferido", "Contrato preferido")}${campo("preferencias", "modelos", "Modelo de trabalho", "separe por vírgula")}${campo("preferencias", "cidades", "Cidades", "separe por vírgula")}${campo("preferencias", "faixa_minima", "Faixa mínima")}${campo("preferencias", "empresas_tipo", "Tipos de empresa", "separe por vírgula")}${campo("preferencias", "evitar", "Evitar", "separe por vírgula")}</dl>
+    if (abaBase === "preferencias") corpo = `<dl class="dl">${campo("preferencias", "setores", "Áreas", "separe por vírgula")}${campo("preferencias", "cargos", "Cargos", "separe por vírgula")}${campo("preferencias", "senioridades", "Senioridades", "separe por vírgula")}${campo("preferencias", "contratos", "Contratos que aceita", "separe por vírgula")}${campo("preferencias", "contrato_preferido", "Contrato preferido")}${campo("preferencias", "modelos", "Modelo de trabalho", "separe por vírgula")}${campo("preferencias", "cidades", "Cidades", "separe por vírgula")}${campo("preferencias", "faixa_minima", "Faixa mínima")}${campo("preferencias", "empresas_tipo", "Tipos de empresa", "separe por vírgula")}${campo("preferencias", "evitar", "Evitar", "separe por vírgula")}</dl>
       <h3 style="margin-top:22px">Dimensões da nota</h3><p class="meta" style="margin:4px 0 10px">O Claude dá a nota de aderência por estas dimensões. Peso 2 conta em dobro.</p>
       <div class="dims-edit">${lista(R.dimensoes).map((d, i) => `<div><input data-dim="${i}" value="${esc(d.nome)}" aria-label="Dimensão ${i + 1}"><select data-peso="${i}" aria-label="Peso">${[1, 2].map((n) => `<option value="${n}" ${+d.peso === n ? "selected" : ""}>peso ${n}</option>`).join("")}</select><button class="btn txt nao" type="button" data-tirar-dim="${i}" aria-label="Tirar dimensão">${ic("x")}</button></div>`).join("")}<button class="btn" type="button" id="nova-dim">${ic("mais")}Dimensão</button></div>`;
     if (abaBase === "sigilo") corpo = `<label class="interruptor"><input type="checkbox" id="sigilo-ativo" ${S.ativo ? "checked" : ""}><span>Busco emprego sem o meu empregador atual saber</span></label>
@@ -696,8 +698,11 @@
     app.querySelectorAll("[data-aba]").forEach((b) => b.addEventListener("click", () => { abaBase = b.dataset.aba; history.replaceState(null, "", `#/base/${abaBase}`); render(true); }));
     app.querySelectorAll("input.inline").forEach((i) => i.addEventListener("change", () => {
       const atual = db[i.dataset.col][i.dataset.k];
-      const LISTAS = ["idiomas", "cargos", "contratos", "modelos", "cidades", "empresas_tipo", "evitar", "bloqueio", "alerta"];
+      const LISTAS = ["setores", "senioridades", "idiomas", "cargos", "contratos", "modelos", "cidades", "empresas_tipo", "evitar", "bloqueio", "alerta"];
       db[i.dataset.col][i.dataset.k] = Array.isArray(atual) || LISTAS.includes(i.dataset.k) ? i.value.split(",").map((s) => s.trim()).filter(Boolean) : i.value;
+      // "setor" e "senioridade" em texto continuam existindo para quem lê o formato antigo
+      if (i.dataset.k === "setores") db.preferencias.setor = db.preferencias.setores.join(", ");
+      if (i.dataset.k === "senioridades") db.preferencias.senioridade = db.preferencias.senioridades.join(", ");
       salvar(i.dataset.col);
     }));
     document.getElementById("sigilo-ativo")?.addEventListener("change", (e) => { db.sigilo.ativo = e.target.checked; salvar("sigilo", e.target.checked ? "Sigilo ligado" : "Sigilo desligado"); });

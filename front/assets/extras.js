@@ -71,7 +71,7 @@
     const ex = est.execucao;
     if (!ex) return `<p class="frase" style="margin:0">Terminou.</p>`;
     const passos = ex.passos || [];
-    return `<p class="meta" style="margin-bottom:10px">${esc(ex.rotulo || "")} · <span data-trab-tempo>${relogio(Date.now() - ex.inicio)}</span></p><ol class="passos-trab">${passos.slice(-60).map((p) => `<li>${esc(p.txt)}</li>`).join("") || "<li>Começando…</li>"}</ol>`;
+    return `<p class="meta" style="margin-bottom:10px">${esc(ex.rotulo || "")} · <span data-trab-tempo>${relogio(Date.now() - ex.inicio)}</span></p><ol class="passos-trab">${passos.slice(-60).map((p) => `<li>${esc(p.txt)}${p.n > 1 ? ` <b class="conta-passo">×${p.n}</b>` : ""}</li>`).join("") || "<li>Começando…</li>"}</ol>`;
   }
   function verTrabalho() {
     if (painelTrab?.isConnected) return;
@@ -119,15 +119,73 @@
   };
   function paraTerminais(fn) { for (const t of [...terminais]) { if (!t.el.isConnected) { t.term.dispose(); terminais.delete(t); continue; } fn(t); } }
 
-  /* ---------- tela: Claude ---------- */
+  /* ---------- tela: Claude (chat) ----------
+     Conversa com o Claude Code da pessoa: cada mensagem continua a mesma sessão, a resposta chega
+     enquanto ele escreve e, embaixo, aparece o que ele está fazendo. O terminal fica recolhido no pé. */
+  est.conversa = est.conversa || { mensagens: [], carregada: false };
+
+  // markdown simples e seguro: escapa tudo antes, depois aplica negrito, itálico, código, links e listas
+  function md(texto) {
+    const blocos = [];
+    let t = esc(texto).replace(/```[a-z]*\n?([\s\S]*?)```/g, (m, c) => { blocos.push(`<pre><code>${c.replace(/\n$/, "")}</code></pre>`); return `\u0000${blocos.length - 1}\u0000`; });
+    const inline = (x) => x
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<i>$2</i>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    const saida = [];
+    for (const par of t.split(/\n{2,}/)) {
+      const linhas = par.split("\n");
+      if (/^\u0000\d+\u0000$/.test(par.trim())) { saida.push(blocos[+par.trim().slice(1, -1)]); continue; }
+      if (linhas.every((l) => /^\s*([-*•]|\d+[.)])\s+/.test(l) || !l.trim())) {
+        const num = /^\s*\d/.test(linhas[0]);
+        saida.push(`<${num ? "ol" : "ul"}>${linhas.filter((l) => l.trim()).map((l) => `<li>${inline(l.replace(/^\s*([-*•]|\d+[.)])\s+/, ""))}</li>`).join("")}</${num ? "ol" : "ul"}>`);
+        continue;
+      }
+      const h = /^(#{1,4})\s+(.*)$/.exec(linhas[0]);
+      if (h && linhas.length === 1) { saida.push(`<h4>${inline(h[2])}</h4>`); continue; }
+      saida.push(`<p>${linhas.map(inline).join("<br>")}</p>`);
+    }
+    return saida.join("").replace(/\u0000(\d+)\u0000/g, (m, i) => blocos[+i]);
+  }
+
+  const MARCA_CLAUDE = `<span class="chat-quem" aria-hidden="true"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#121417"/><path d="M7.5 9.5 16 24l8.5-14.5" stroke="#fff" stroke-width="3.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="24.5" cy="9.5" r="3.6" fill="#e39b00"/></svg></span>`;
+  function bolha(m, ultima) {
+    if (m.papel === "voce") return `<div class="chat-msg voce"><div class="chat-bolha">${md(m.texto)}</div></div>`;
+    const trabalhando = ultima && est.conversa.ocupado;
+    const passos = m.passos || [];
+    const rodape = trabalhando
+      ? `<div class="chat-fazendo"><i class="pulso"></i>${esc(passos.at(-1) || "Pensando…")}</div>`
+      : passos.length ? `<details class="chat-passos"><summary>${VG.plural(passos.length, "passo", "passos")} até a resposta</summary><ol>${passos.map((p) => `<li>${esc(p)}</li>`).join("")}</ol></details>` : "";
+    const corpo = m.texto ? md(m.texto) : trabalhando ? `<span class="chat-digitando"><i></i><i></i><i></i></span>` : "";
+    return `<div class="chat-msg claude ${m.erro ? "erro" : ""}">${MARCA_CLAUDE}<div><div class="chat-bolha">${corpo}</div>${rodape}</div></div>`;
+  }
+  const SUGESTOES = ["Qual das vagas para triar vale mais a pena para mim?", "Revisa meus feitos e diz o que falta de número.", "Me prepara para uma entrevista de emprego.", "Sugere 10 empresas parecidas com as minhas."];
+  function corpoChat() {
+    const M = est.conversa.mensagens;
+    if (!M.length) {
+      const nome = String(db.perfil?.nome || "").split(/\s+/)[0];
+      return `<div class="chat-vazio"><div class="chat-vazio-marca">${MARCA_CLAUDE}</div><h2>E aí${nome ? `, ${esc(nome)}` : ", vagabs"}? Sobre o que vamos conversar?</h2><p class="meta">O Claude enxerga as suas vagas, os seus feitos e as suas preferências, e pode mudar as coisas por aqui.</p><div class="opcoes chat-sugestoes">${SUGESTOES.map((x) => `<button type="button" class="ficha" data-sugestao="${esc(x)}">${esc(x)}</button>`).join("")}</div></div>`;
+    }
+    return M.map((m, i) => bolha(m, i === M.length - 1)).join("");
+  }
   function telaClaude() {
     const c = est.claude, u = est.uso;
     const janela = u?.unifiedWindows?.five_hour, semana = u?.unifiedWindows?.seven_day;
     const pct = (x) => (x?.utilization != null ? `${Math.round(x.utilization * 100)}%` : "—");
-    return `<section class="tela entra"><div class="titulo"><div><h1>Claude</h1><p class="frase">O seu Claude Code, rodando na pasta do Vagabs. Converse sobre a sua busca: ele enxerga os seus dados e pode mudar as coisas por aqui.</p></div></div>
+    const outro = est.execucao && est.execucao.tipo !== "conversa";
+    const pronto = c?.instalado && c?.logado;
+    return `<section class="tela entra"><div class="titulo"><div><h1>Claude</h1><p class="frase">Converse com o seu Claude sobre a busca. Ele lembra do que vocês já falaram nesta conversa.</p></div>
+        <button class="btn" type="button" data-nova-conversa ${est.conversa.ocupado || !est.conversa.mensagens.length ? "disabled" : ""}>${ic("mais")}Nova conversa</button></div>
       <div class="grade">
-        <section class="painel console-painel"><div class="cab"><h2>Console</h2><span class="botoes-mini"><button class="btn" type="button" data-cmd="claude">${ic("play")}Abrir o Claude</button><button class="btn txt" type="button" data-reiniciar>${ic("atualizar")}Reiniciar o console</button></span></div><div class="console" data-console></div>
-          <p class="meta" style="margin-top:10px">Dica: na primeira vez, o Claude pergunta se confia nesta pasta: escolha "Sim". Para sair do Claude, digite <code>/exit</code>. Ctrl+C copia o que estiver selecionado; Ctrl+V cola.</p></section>
+        <section class="painel chat">
+          <div class="chat-msgs" id="chat-msgs">${corpoChat()}</div>
+          ${outro ? `<p class="aviso-linha chat-aviso">${ic("relogio")}O Claude está ocupado com ${est.execucao.tipo === "varredura" ? "a varredura" : "a fila"}. A conversa volta quando ele terminar.</p>` : ""}
+          ${!pronto && c ? `<p class="aviso-linha chat-aviso">${ic("alerta")}${c.instalado ? "O Claude Code não está conectado. Faça o login no terminal aqui ao lado." : "O Claude Code não foi encontrado. Instale pelo terminal aqui ao lado."}</p>` : ""}
+          <form class="chat-caixa" id="chat-form"><textarea id="chat-texto" rows="1" placeholder="Escreva para o Claude…" aria-label="Mensagem para o Claude"></textarea>
+            ${est.conversa.ocupado ? `<button class="btn g" type="button" id="chat-parar">${ic("parar")}Parar</button>` : `<button class="btn p g" type="submit" ${outro || !pronto ? "disabled" : ""}>${ic("enviar")}Enviar</button>`}</form>
+          <p class="meta chat-dica">Enter envia · Shift+Enter quebra a linha</p>
+        </section>
         <div class="coluna">
           <section class="painel"><div class="cab"><h2>Situação</h2><button class="btn txt" type="button" data-checar>${ic("atualizar")}Conferir</button></div><div class="lista-kv">
             <div><span>Claude Code</span><b>${c ? (c.instalado ? `instalado · ${esc(c.versao)}` : "não encontrado") : "…"}</b></div>
@@ -135,19 +193,64 @@
             <div><span>Plano</span><b>${esc(c?.plano || "—")}</b></div>
             <div><span>Uso da janela de 5 h</span><b>${pct(janela)}</b></div>
             <div><span>Uso da semana</span><b>${pct(semana)}</b></div></div>
-            ${c && !c.instalado ? `<button class="btn p" type="button" data-cmd="instalar" style="margin-top:12px">${ic("play")}Instalar o Claude Code</button>` : ""}
-            ${c?.instalado && !c.logado ? `<button class="btn p" type="button" data-cmd="login" style="margin-top:12px">${ic("play")}Fazer login</button>` : ""}
             ${est.limite ? `<p class="aviso-linha" style="margin-top:12px">${ic("alerta")}O plano bateu no limite${est.limite.ate ? `; volta por volta de ${new Date(est.limite.ate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : ""}.</p>` : ""}
-            <p class="meta" style="margin-top:12px">O uso aparece depois que o Claude trabalha pela primeira vez nesta sessão.</p></section>
-          <section class="painel"><div class="cab"><h2>O que pedir aqui</h2></div><ul class="lista-ok"><li>${ic("check")}"Leia minhas vagas para triar e me diga qual vale mais a pena."</li><li>${ic("check")}"Monte uma versão do meu CV para a vaga v003, em Word, na pasta documentos."</li><li>${ic("check")}"Me prepara para a entrevista da semana que vem."</li></ul><p class="meta">Pedidos longos ou repetidos funcionam melhor pela fila (tela Pedidos).</p></section>
+            <p class="meta" style="margin-top:12px">O uso aparece depois que o Claude trabalha pela primeira vez nesta sessão. Pedidos longos funcionam melhor pela fila (tela Pedidos).</p></section>
+          <details class="painel terminal-avancado" ${!pronto && c ? "open" : ""}><summary><b>Terminal (avançado)</b><span class="meta">login, instalação e o Claude Code puro</span></summary>
+            <div class="botoes" style="margin-top:12px">${c && !c.instalado ? `<button class="btn p" type="button" data-cmd="instalar">${ic("play")}Instalar o Claude Code</button>` : ""}${c?.instalado && !c.logado ? `<button class="btn p" type="button" data-cmd="login">${ic("play")}Fazer login</button>` : ""}<button class="btn" type="button" data-cmd="claude">${ic("play")}Abrir o Claude aqui</button><button class="btn txt" type="button" data-reiniciar>${ic("atualizar")}Reiniciar</button></div>
+            <div class="console" data-console style="margin-top:12px"></div></details>
         </div></div></section>`;
   }
+  const rolar = (forcar) => { const el = document.getElementById("chat-msgs"); if (el && (forcar || el.scrollHeight - el.scrollTop - el.clientHeight < 160)) el.scrollTop = el.scrollHeight; };
+  // atualiza só a última bolha (sem redesenhar a tela, para não perder o que a pessoa está digitando)
+  function atualizarChat(forcar = false) {
+    const el = document.getElementById("chat-msgs"); if (!el) return;
+    const M = est.conversa.mensagens;
+    const ult = el.querySelector(".chat-msg:last-child");
+    if (ult && M.length && el.children.length === M.length) { ult.outerHTML = bolha(M.at(-1), true); }
+    else el.innerHTML = corpoChat();
+    rolar(forcar);
+  }
+  async function carregarConversa() {
+    try { const c = await api("conversa"); est.conversa = { ...est.conversa, mensagens: c.mensagens || [], carregada: true, ocupado: est.execucao?.tipo === "conversa" }; } catch {}
+  }
+  async function enviar(texto) {
+    texto = String(texto || "").trim(); if (!texto) return;
+    if (precisaClaude()) return;
+    const r = await api("conversa/enviar", { metodo: "POST", corpo: { texto } }).catch((e) => ({ ok: false, motivo: e.message }));
+    if (!r.ok) return toast(r.motivo || "Não consegui enviar");
+    await carregarConversa(); est.conversa.ocupado = !!r.ocupado;
+    VG.render(true); rolar(true);
+    document.getElementById("chat-texto")?.focus();
+  }
   function ligarClaude() {
-    const el = document.querySelector("[data-console]"); if (el) VG.terminal(el, { altura: Math.max(380, innerHeight - 330) });
-    document.querySelectorAll("[data-cmd]").forEach((b) => b.addEventListener("click", () => api("console/comando", { metodo: "POST", corpo: { qual: b.dataset.cmd } })));
-    document.querySelector("[data-reiniciar]")?.addEventListener("click", async () => { await api("console/reiniciar", { metodo: "POST" }); VG.render(true); });
+    if (!est.conversa.carregada) carregarConversa().then(() => { if (VG.rotaAtual()[0] === "claude") { VG.render(true); } });
+    rolar(true);
+    const ta = document.getElementById("chat-texto");
+    const ajustar = () => { ta.style.height = "auto"; ta.style.height = `${Math.min(200, ta.scrollHeight)}px`; };
+    ta?.addEventListener("input", ajustar);
+    ta?.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); if (!est.conversa.ocupado) document.getElementById("chat-form").requestSubmit(); } });
+    document.getElementById("chat-form")?.addEventListener("submit", (e) => { e.preventDefault(); const t = ta.value; if (!t.trim() || est.conversa.ocupado) return; ta.value = ""; ajustar(); enviar(t); });
+    document.getElementById("chat-parar")?.addEventListener("click", () => api("conversa/parar", { metodo: "POST" }));
+    document.querySelectorAll("[data-sugestao]").forEach((b) => b.addEventListener("click", () => enviar(b.dataset.sugestao)));
+    document.querySelector("[data-nova-conversa]")?.addEventListener("click", async () => {
+      const r = await api("conversa/nova", { metodo: "POST" }); if (!r.ok) return toast(r.motivo);
+      est.conversa.mensagens = []; VG.render(true); toast("Conversa nova. A anterior fica guardada na pasta conversas.");
+    });
+    const det = document.querySelector(".terminal-avancado"), cons = document.querySelector("[data-console]");
+    const abrirTerminal = () => { if (det.open && cons && !cons.dataset.ligado) { cons.dataset.ligado = "1"; VG.terminal(cons, { altura: 300 }); } };
+    det?.addEventListener("toggle", abrirTerminal); abrirTerminal();
+    document.querySelectorAll("[data-cmd]").forEach((b) => b.addEventListener("click", () => { if (det) det.open = true; api("console/comando", { metodo: "POST", corpo: { qual: b.dataset.cmd } }); }));
+    document.querySelector("[data-reiniciar]")?.addEventListener("click", async () => { await api("console/reiniciar", { metodo: "POST" }); });
     document.querySelector("[data-checar]")?.addEventListener("click", async () => { est.claude = await api("claude/checar"); VG.render(true); });
   }
+  VG.chatEvento = (e) => {
+    const M = est.conversa.mensagens;
+    if (e.mensagem) { if (M.length && M.at(-1).papel === "claude") M[M.length - 1] = e.mensagem; else M.push(e.mensagem); }
+    est.conversa.ocupado = !!e.ocupado;
+    if (VG.rotaAtual()[0] !== "claude") return;
+    if (e.fim || e.nova) { const ta = document.getElementById("chat-texto"); const t = ta?.value || "", foco = document.activeElement === ta; VG.render(true); const n = document.getElementById("chat-texto"); if (n) { n.value = t; if (foco) n.focus(); } rolar(true); }
+    else atualizarChat();
+  };
   VG.telas.claude = telaClaude; VG.ligar.claude = ligarClaude; VG.titulos.claude = "Claude";
 
   /* ---------- tela: Configurações ---------- */
@@ -354,6 +457,7 @@
     fonte.onmessage = async (m) => {
       let e; try { e = JSON.parse(m.data); } catch { return; }
       if (e.tipo === "pty") paraTerminais((t) => t.term.write(e.dados));
+      else if (e.tipo === "conversa") VG.chatEvento(e);
       else if (e.tipo === "pty-fim") paraTerminais((t) => t.term.write("\r\n[console encerrado — clique em Reiniciar o console]\r\n"));
       else if (e.tipo === "dados") {
         colecoesSujas.add(e.colecao); clearTimeout(recarga);
@@ -371,6 +475,8 @@
   }
   async function fimTrabalho(f) {
     await VG.carregar();
+    // o chat se atualiza sozinho; só as outras telas precisam redesenhar com o que o Claude gravou
+    if (f.silencioso) { if (VG.rotaAtual()[0] !== "claude") redesenhar(); return; }
     let msg = "";
     if (f.tipo === "fila") msg = f.limite ? "O plano bateu no limite. O resto da fila espera." : `Fila terminada: ${VG.plural(f.feitos || 0, "pedido feito", "pedidos feitos")}${f.falhas ? `, ${f.falhas} sem terminar` : ""}.`;
     if (f.tipo === "varredura") msg = f.ok ? (f.semClaude ? "Varredura feita: nenhuma vaga nova desta vez." : `Varredura feita: ${VG.plural(f.novas || 0, "vaga nova", "vagas novas")} para triar.`) : `A varredura não terminou: ${f.erro || ""}`;

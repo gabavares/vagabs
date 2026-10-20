@@ -85,7 +85,7 @@ function claudeMd(db) {
 Gerado pelo setup em ${hoje}. Os dados completos estão em \`dados/\` (perfil, preferencias, sigilo). Pode editar este arquivo: o app não sobrescreve.
 
 - **Nome:** ${P.nome || "—"} · ${P.cidade || "—"}
-- **Área:** ${R.setor || "—"} · **Cargos:** ${lista(R.cargos)} · **Senioridade:** ${R.senioridade || "—"}
+- **Áreas:** ${lista(R.setores || [R.setor].filter(Boolean))} · **Cargos:** ${lista(R.cargos)} · **Senioridade:** ${lista(R.senioridades || [R.senioridade].filter(Boolean))}
 - **Contrato:** ${lista(R.contratos)}${R.contrato_preferido ? ` (prefere ${R.contrato_preferido})` : ""} · **Modelo:** ${lista(R.modelos)} · **Cidades:** ${lista(R.cidades)}${R.muda_cidade ? " (aceita mudar)" : ""}
 - **O que mais importa:** ${lista((R.criterios || []).map((c) => c.nome))}
 - **Sigilo:** ${S.ativo ? `ligado. Busca sem o empregador atual saber${S.empregador ? ` (${S.empregador})` : ""}.` : "desligado."}

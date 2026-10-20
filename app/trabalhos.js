@@ -16,6 +16,9 @@ const agoraTxt = () => { const d = new Date(); return `${d.getFullYear()}-${p2(d
 const hojeTxt = () => agoraTxt().slice(0, 10);
 
 let db = null, pararDepois = false, controle = null;
+// modo teste do Gab: texto com esta frase é aceito na hora, sem chamar o Claude (não gasta o plano)
+const MODO_TESTE = /miojo de chocolate/i;
+const ehTeste = (t) => MODO_TESTE.test(String(t || ""));
 function ligar(banco) { db = banco; }
 const ocupado = () => !!vivo.execucao;
 
@@ -43,10 +46,20 @@ function comecar(tipo, rotulo, extra = {}) {
   vivo.execucao = { tipo, rotulo, inicio: Date.now(), passos: [], ...extra };
   emitir("execucao", { execucao: vivo.execucao });
 }
+// linhas repetidas viram uma só com contador ("Acrescentando nas empresas ×12"); progresso "(3 de 27)" troca no lugar
+const REPETE = /^(Acrescentando|Gravando|Atualizando|Registrando|Lendo|Buscando|Pesquisando|Abrindo) /;
+const semConta = (s) => s.replace(/\s*\(\d+ de \d+\)$/, "");
 function passo(txt) {
   if (!vivo.execucao || !txt) return;
-  vivo.execucao.passos.push({ t: Date.now(), txt });
-  if (vivo.execucao.passos.length > 300) vivo.execucao.passos.shift();
+  const P = vivo.execucao.passos, ult = P[P.length - 1], agora = Date.now();
+  if (ult && ult.txt === txt) { ult.n = (ult.n || 1) + 1; ult.t = agora; }
+  else if (ult && /\(\d+ de \d+\)$/.test(txt) && semConta(ult.txt) === semConta(txt)) { ult.txt = txt; ult.t = agora; }
+  else {
+    const i = REPETE.test(txt) ? P.slice(-6).findIndex((x) => x.txt === txt) : -1;
+    if (i >= 0) { const [x] = P.splice(P.length - Math.min(6, P.length) + i, 1); x.n = (x.n || 1) + 1; x.t = agora; P.push(x); }
+    else P.push({ t: agora, txt, n: 1 });
+  }
+  if (P.length > 300) P.shift();
   emitir("execucao", { execucao: vivo.execucao });
 }
 function terminar(fim) {
@@ -55,11 +68,11 @@ function terminar(fim) {
 }
 
 function modelo() { return db.ler("config").claude?.modelo || "claude-opus-5-5"; }
-async function rodarClaude(prompt, esforco) {
+async function rodarClaude(prompt, esforco, extra = {}) {
   controle = new AbortController();
   const r = await claude.executar({
     pasta: db.pasta, prompt, modelo: modelo(), esforco, ferramentas: pasta.ferramentas(db), mcpConfig: path.join(db.pasta, ".vagabs", "mcp.json"),
-    sistema: SISTEMA, aoPasso: (p) => passo(legivel(p)), sinal: controle.signal,
+    sistema: SISTEMA, aoPasso: (p) => passo(legivel(p)), sinal: controle.signal, ...extra,
   });
   if (r.limite) {
     const ate = r.limite.resetsAt ? new Date(r.limite.resetsAt * 1000).toISOString() : null;
@@ -95,6 +108,13 @@ async function rodarFila() {
       total = Math.max(total, feitos + falhas + lista.length);
       Object.assign(vivo.execucao, { indice: feitos + falhas + 1, total, pedido: p.id, rotulo: p.texto.slice(0, 90) });
       passo(`Pedido ${feitos + falhas + 1} de ${total}: ${p.texto.slice(0, 120)}`);
+      if (ehTeste(p.texto)) {
+        passo("Modo teste: aceito sem chamar o Claude");
+        db.atualizar("pedidos", p.id, p.tipo === "versao"
+          ? { status: "revisao", respondido: agoraTxt(), versao: `Versão de teste (modo miojo de chocolate): ${p.texto}`, resposta: "Modo teste: nada foi processado pelo Claude." }
+          : { status: "respondido", respondido: agoraTxt(), resposta: "Modo teste: pedido aceito sem chamar o Claude. Nada foi mudado." });
+        feitos++; continue;
+      }
       db.atualizar("pedidos", p.id, { status: "processando", iniciado: agoraTxt() });
       const r = await rodarClaude(promptPedido(p), p.tipo === "kit" ? "high" : "medium");
       const atual = db.lerItem("pedidos", p.id) || {};
@@ -154,7 +174,7 @@ function exemploPadrao() {
   const cidade = (R.cidades || [])[0] || P.cidade || "Sua cidade";
   return {
     id: db.proximoId("vagas", "v"), exemplo: true, fonte: "Exemplo do Vagabs", id_fonte: "exemplo", url: "", empresa: "Empresa Exemplo", cargo: `Exemplo: ${cargo}`,
-    area: R.setor || "", local: cidade, modelo: (R.modelos || [])[0] || "Híbrido", contrato: R.contrato_preferido || (R.contratos || [])[0] || "CLT", faixa: null,
+    area: (R.setores || [])[0] || R.setor || "", local: cidade, modelo: (R.modelos || [])[0] || "Híbrido", contrato: R.contrato_preferido || (R.contratos || [])[0] || "CLT", faixa: null,
     publicada: hojeTxt(), captada: hojeTxt(), estado: "nova", nota: 82,
     dimensoes: { "Cargo e senioridade": 88, "Área e setor": 85, "Encaixe com os feitos": 70, Contrato: 90, "Local e modelo": 80 },
     motivos: ["Exemplo: o cargo bate com o que você marcou no setup.", "Exemplo: o contrato e o modelo são os que você prefere.", "Exemplo: numa vaga real, aqui aparecem os seus feitos que pesam a favor."],
@@ -215,4 +235,58 @@ async function checarFerramentas() {
   };
 }
 
-module.exports = { ligar, ocupado, rodarFila, pararFila, cancelar, rodarVarredura, preparar, checarFerramentas, garantirExemplo, ordemFila };
+/* ---------- chat com o Claude (aba Claude) ----------
+   Cada mensagem é uma execução escondida que continua a mesma sessão (--resume), com o texto chegando
+   enquanto ele escreve. Divide a vez com a fila e a varredura: um Claude de cada vez. */
+const fs = require("fs");
+const SISTEMA_CHAT = "Você está no chat do app Vagabs, conversando com a pessoa dona desta busca de emprego. Responda em português do Brasil, direto e caloroso, em markdown simples (parágrafos curtos, listas, negrito). Use as ferramentas do MCP vagabs para ler e gravar os dados, e siga .vagabs/instrucoes.md. Antes de mudar um dado importante, diga o que vai mudar.";
+const arqConversa = () => path.join(db.pasta, "conversas", "atual.json");
+function conversa() { try { return JSON.parse(fs.readFileSync(arqConversa(), "utf8")); } catch { return { sessao: null, mensagens: [] }; } }
+function gravarConversa(c) { fs.mkdirSync(path.dirname(arqConversa()), { recursive: true }); fs.writeFileSync(arqConversa(), JSON.stringify(c, null, 1), "utf8"); }
+async function conversar(texto) {
+  if (ocupado()) return { ok: false, motivo: vivo.execucao.tipo === "conversa" ? "O Claude ainda está respondendo." : "O Claude está ocupado com a fila ou a varredura. A conversa volta quando ele terminar." };
+  texto = String(texto || "").trim();
+  if (!texto) return { ok: false, motivo: "Mensagem vazia." };
+  const c = conversa();
+  const quando = agoraTxt();
+  c.mensagens.push({ papel: "voce", texto, quando });
+  const resp = { papel: "claude", texto: "", passos: [], quando };
+  c.mensagens.push(resp);
+  gravarConversa(c);
+  if (ehTeste(texto)) {
+    resp.texto = "Modo teste: recebi a mensagem sem chamar o Claude. Nada foi processado, e o plano não foi usado.";
+    resp.passos = []; gravarConversa(c);
+    emitir("conversa", { mensagem: resp, ocupado: false, fim: true });
+    return { ok: true, teste: true };
+  }
+  comecar("conversa", "Conversa", { silencioso: true });
+  let quebra = false, aviso = null;
+  const mandar = () => { clearTimeout(aviso); aviso = setTimeout(() => emitir("conversa", { mensagem: resp, ocupado: true }), 60); };
+  emitir("conversa", { mensagem: resp, ocupado: true, nova: true });
+  try {
+    const r = await rodarClaude(texto, "medium", {
+      sistema: SISTEMA_CHAT, retomar: c.sessao,
+      // texto depois de usar ferramentas começa parágrafo novo
+      aoTexto: (t) => { if (quebra && resp.texto) resp.texto += "\n\n"; quebra = false; resp.texto += t; mandar(); },
+      aoPasso: (p) => { const l = legivel(p); if (l) { resp.passos.push(l); passo(l); quebra = true; mandar(); } },
+    });
+    if (r.sessao) c.sessao = r.sessao;
+    if (!resp.texto.trim()) resp.texto = r.ok ? (r.resultado || "(sem resposta)") : `Não consegui responder: ${explicar(r)}`;
+    if (!r.ok && resp.texto && !resp.erro) resp.erro = true;
+  } catch (e) { resp.texto = resp.texto || `Não consegui responder: ${e.message}`; resp.erro = true; }
+  finally {
+    clearTimeout(aviso);
+    gravarConversa(c);
+    terminar({ silencioso: true });
+    emitir("conversa", { mensagem: resp, ocupado: false, fim: true });
+  }
+  return { ok: true };
+}
+function novaConversa() {
+  if (vivo.execucao?.tipo === "conversa") return { ok: false, motivo: "Espere o Claude terminar de responder." };
+  const c = conversa();
+  if (c.mensagens.length) { const d = new Date(); fs.renameSync(arqConversa(), path.join(path.dirname(arqConversa()), `${d.toISOString().slice(0, 16).replace(/[:T]/g, "-")}.json`)); }
+  return { ok: true };
+}
+
+module.exports = { ehTeste, ligar, ocupado, rodarFila, pararFila, cancelar, rodarVarredura, preparar, checarFerramentas, garantirExemplo, ordemFila, conversa, conversar, novaConversa };

@@ -3,7 +3,7 @@
 
 /* assinatura: em toda tela */
 .assinatura { position: relative; z-index: 1; text-align: center; padding: 10px 16px 18px; font-size: 12px; color: var(--muted); letter-spacing: .01em; }
-.modo-setup .assinatura { position: fixed; left: 0; right: 0; bottom: 0; padding-bottom: 12px; }
+.modo-setup .assinatura { margin-top: -56px; padding-bottom: 16px; }
 
 /* selo da vaga de exemplo */
 .selo-exemplo { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 4px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--vez-t); background: var(--vez-bg); box-shadow: inset 0 0 0 1px #efd28a; flex: none; }
@@ -186,3 +186,27 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; bac
 .terminal-avancado summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; cursor: pointer; list-style: none; }
 .terminal-avancado summary::-webkit-details-marker { display: none; }
 .terminal-avancado summary b { font-size: 16px; }
+
+/* onde trabalhar: um cartão por formato, com as suas cidades */
+.modos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.modo { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; align-content: start; background: #fff; }
+.modo.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.modo .outro { margin-top: 0; }
+.modo .outro input { height: 32px; }
+/* no cartão estreito, o botão de pôr cidade fica só com o ícone */
+.modo .outro .btn { font-size: 0; gap: 0; height: 32px; padding: 0 9px; flex: none; }
+.modo .outro .btn .svg { width: 16px; height: 16px; }
+.modo .opcoes .ficha { height: 30px; font-size: 13px; }
+@media (max-width: 1000px) { .modos { grid-template-columns: minmax(0, 1fr); } }
+
+/* onde trabalhar: um cartão por formato, com as suas cidades */
+.modos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.modo { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; align-content: start; background: #fff; }
+.modo.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.modo .outro { margin-top: 0; }
+.modo .outro input { height: 32px; }
+/* no cartão estreito, o botão de pôr cidade fica só com o ícone */
+.modo .outro .btn { font-size: 0; gap: 0; height: 32px; padding: 0 9px; flex: none; }
+.modo .outro .btn .svg { width: 16px; height: 16px; }
+.modo .opcoes .ficha { height: 30px; font-size: 13px; }
+@media (max-width: 1000px) { .modos { grid-template-columns: minmax(0, 1fr); } }

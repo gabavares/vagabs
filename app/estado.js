@@ -31,6 +31,7 @@ const vivo = {
   limite: null,     // {ate: iso} quando o plano bateu no limite
   atualizacao: { estado: "parada" },
   claude: null,     // última checagem {caminho, versao, logado, email, plano}
+  comando: null,    // comando do app rodando no console {qual: instalar|login, inicio}
 };
 function emitir(tipo, extra = {}) { eventos.emit("evento", { tipo, ...extra }); }
 

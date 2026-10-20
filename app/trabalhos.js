@@ -157,6 +157,13 @@ async function rodarVarredura() {
       const registrou = db.ler("varreduras").some((v) => String(v.data).startsWith(hoje));
       res = { ok: r.ok && registrou, novas: db.ler("vagas").length - antes, erro: r.ok ? null : explicar(r) };
     }
+    // backup junto com a varredura (se ligado e se houver pasta de backup)
+    if (res.ok) {
+      try {
+        const b = require("./backup"), e = b.estado(db);
+        if (e.auto && e.destino) { passo("Fazendo o backup"); const r = b.fazer(db); res.backup = r.ok; }
+      } catch {}
+    }
     const ultima = res.ok ? agoraUtc() : cfg.varredura?.ultima || null;
     db.objeto("config", { varredura: { ...db.ler("config").varredura, ultima, ultima_tentativa: agoraUtc() } });
   } catch (e) {

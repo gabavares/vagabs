@@ -321,9 +321,9 @@
   }
   function itemPedido(p, { controles = false, pos = 0, total = 0 } = {}) {
     const st = ST_PEDIDO[p.status] || ["agu", p.status];
-    const rotas = { vaga: `#/vaga/${p.onde?.id}`, feito: "#/base/feitos", empresa: "#/empresas", empresas: "#/empresas", base: "#/base" };
+    const rotas = { vaga: `#/vaga/${p.onde?.id}`, feito: "#/base/feitos", empresa: "#/empresas", empresas: "#/empresas", base: p.onde?.id === "enriquecer" ? "#/base/enriquecer" : "#/base" };
     const onde = p.onde && p.onde.tipo !== "geral" ? `<a class="btn txt" href="${rotas[p.onde.tipo] || "#/pedidos"}">${esc(p.onde.rotulo || p.onde.id)}</a>` : "<span>Geral</span>";
-    const tipo = p.tipo === "versao" ? `<span class="etiqueta">${ic("versao")}Versão</span>` : p.tipo === "kit" ? `<span class="etiqueta">Kit</span>` : "";
+    const tipo = p.tipo === "versao" ? `<span class="etiqueta">${ic("versao")}Versão</span>` : p.tipo === "kit" ? `<span class="etiqueta">Kit</span>` : p.tipo === "enriquecer" ? `<span class="etiqueta">Enriquecer</span>` : "";
     const quando = String(p.respondido || p.criado || "");
     const revisar = p.tipo === "versao" && p.status === "revisao" ? blocoVersao(p.alvo) : "";
     const ctl = controles && p.status === "fila" ? `<span class="ctl-fila"><button class="btn txt" type="button" data-mover="${p.id}" data-dir="-1" ${pos === 0 ? "disabled" : ""} aria-label="Subir na fila">${ic("sobe")}</button><button class="btn txt" type="button" data-mover="${p.id}" data-dir="1" ${pos === total - 1 ? "disabled" : ""} aria-label="Descer na fila">${ic("desce")}</button><button class="btn txt nao" type="button" data-tirar="${p.id}">Tirar da fila</button></span>`
@@ -656,17 +656,22 @@
   /* ---------- tela: Base ---------- */
   let abaBase = "perfil";
   function telaBase(arg) {
-    if (arg && ["perfil", "preferencias", "feitos", "sigilo", "documentos"].includes(arg)) abaBase = arg;
+    if (arg && ["perfil", "enriquecer", "preferencias", "feitos", "sigilo", "documentos"].includes(arg)) abaBase = arg;
     const P = db.perfil, R = db.preferencias, S = db.sigilo;
     if (!Array.isArray(R.setores) && R.setor) R.setores = [R.setor];
     if (!Array.isArray(R.senioridades) && R.senioridade) R.senioridades = [R.senioridade];
     const campo = (col, k, rot, dica = "") => `<dt>${rot}</dt><dd><input class="inline" data-col="${col}" data-k="${k}" value="${esc(Array.isArray(db[col][k]) ? db[col][k].join(", ") : db[col][k] ?? "")}" aria-label="${rot}" placeholder="${esc(dica)}"></dd>`;
-    const abas = { perfil: "Perfil", preferencias: "Preferências", feitos: "Feitos", sigilo: "Sigilo", documentos: "Documentos" };
+    const abas = { perfil: "Perfil", enriquecer: "Enriquecer", preferencias: "Preferências", feitos: "Feitos", sigilo: "Sigilo", documentos: "Documentos" };
     let corpo = "";
     if (abaBase === "perfil") corpo = `${P.resumo ? `<div class="destaque-pos"><h3>Resumo</h3><p class="frase">${esc(P.resumo)}</p>${campoPedido({ tipo: "base", rotulo: "Resumo" }, "Ex.: uma frase mais curta para o título do LinkedIn", { col: "perfil", id: null, campo: ["resumo"] })}${blocoVersao({ col: "perfil", id: null, campo: ["resumo"] })}</div>` : ""}
       <dl class="dl">${campo("perfil", "nome", "Nome")}${campo("perfil", "email", "E-mail para candidaturas")}${campo("perfil", "telefone", "Telefone")}${campo("perfil", "cidade", "Cidade")}${campo("perfil", "linkedin", "LinkedIn")}${campo("perfil", "cargo_atual", "Cargo atual")}${campo("perfil", "formacao", "Formação")}${campo("perfil", "idiomas", "Idiomas", "separe por vírgula")}${campo("perfil", "resumo", "Resumo")}</dl>
+      ${lista(P.cursos).length || lista(P.ferramentas).length ? `<h3 style="margin-top:22px">Cursos e ferramentas</h3><ul class="lista-simples" style="margin-top:8px">${[...lista(P.cursos), ...lista(P.ferramentas)].map((x) => `<li>${esc(typeof x === "string" ? x : x.nome || JSON.stringify(x))}</li>`).join("")}</ul>` : ""}
       ${lista(P.trajetoria).length ? `<h3 style="margin-top:22px">Trajetória</h3><div class="lista-kv" style="margin-top:8px">${P.trajetoria.map((t) => `<div><span>${esc(t.periodo || "")}</span><b style="flex:1;text-align:right">${esc([t.cargo, t.empresa].filter(Boolean).join(" · "))}</b></div>`).join("")}</div>` : ""}`;
-    if (abaBase === "preferencias") corpo = `<dl class="dl">${campo("preferencias", "setores", "Áreas", "separe por vírgula")}${campo("preferencias", "cargos", "Cargos", "separe por vírgula")}${campo("preferencias", "senioridades", "Senioridades", "separe por vírgula")}${campo("preferencias", "contratos", "Contratos que aceita", "separe por vírgula")}${campo("preferencias", "contrato_preferido", "Contrato preferido")}${campo("preferencias", "modelos", "Modelo de trabalho", "separe por vírgula")}${campo("preferencias", "cidades", "Cidades", "separe por vírgula")}${campo("preferencias", "faixa_minima", "Faixa mínima")}${campo("preferencias", "empresas_tipo", "Tipos de empresa", "separe por vírgula")}${campo("preferencias", "evitar", "Evitar", "separe por vírgula")}</dl>
+    if (abaBase === "preferencias") corpo = `<dl class="dl">${campo("preferencias", "setores", "Áreas", "separe por vírgula")}${campo("preferencias", "cargos", "Cargos", "separe por vírgula")}${campo("preferencias", "senioridades", "Senioridades", "separe por vírgula")}${campo("preferencias", "contratos", "Contratos que aceita", "separe por vírgula")}${campo("preferencias", "contrato_preferido", "Contrato preferido")}</dl>
+      <h3 style="margin-top:22px">Onde você topa trabalhar</h3><p class="meta" style="margin:4px 0 10px">Remoto vale qualquer cidade do Brasil. Híbrido e presencial, só nas cidades de cada um.</p>
+      <div class="modos">${["Remoto", "Híbrido", "Presencial"].map((m) => { const on = lista(R.modelos).includes(m); return `<div class="modo ${on ? "on" : ""}"><label class="interruptor" style="margin:0"><input type="checkbox" data-modo-base="${m}" ${on ? "checked" : ""}><span><b>${m}</b></span></label>${on && m !== "Remoto" ? `<input class="inline" data-cid-base="${m}" value="${esc(lista(R.locais?.[m]).join(", "))}" placeholder="Cidades, separadas por vírgula" aria-label="Cidades para ${m.toLowerCase()}">` : on ? `<p class="meta">Qualquer cidade do Brasil.</p>` : ""}</div>`; }).join("")}</div>
+      <label class="interruptor"><input type="checkbox" id="muda-cidade" ${R.muda_cidade ? "checked" : ""}><span>Aceito mudar de cidade por uma boa vaga</span></label>
+      <dl class="dl" style="margin-top:16px">${campo("preferencias", "faixa_minima", "Faixa mínima")}${campo("preferencias", "empresas_tipo", "Tipos de empresa", "separe por vírgula")}${campo("preferencias", "evitar", "Evitar", "separe por vírgula")}</dl>
       <h3 style="margin-top:22px">Dimensões da nota</h3><p class="meta" style="margin:4px 0 10px">O Claude dá a nota de aderência por estas dimensões. Peso 2 conta em dobro.</p>
       <div class="dims-edit">${lista(R.dimensoes).map((d, i) => `<div><input data-dim="${i}" value="${esc(d.nome)}" aria-label="Dimensão ${i + 1}"><select data-peso="${i}" aria-label="Peso">${[1, 2].map((n) => `<option value="${n}" ${+d.peso === n ? "selected" : ""}>peso ${n}</option>`).join("")}</select><button class="btn txt nao" type="button" data-tirar-dim="${i}" aria-label="Tirar dimensão">${ic("x")}</button></div>`).join("")}<button class="btn" type="button" id="nova-dim">${ic("mais")}Dimensão</button></div>`;
     if (abaBase === "sigilo") corpo = `<label class="interruptor"><input type="checkbox" id="sigilo-ativo" ${S.ativo ? "checked" : ""}><span>Busco emprego sem o meu empregador atual saber</span></label>
@@ -684,6 +689,16 @@
           <div class="pede">${campoPedido({ tipo: "feito", id: f.id, rotulo: f.id }, `Ex.: deixa o ${f.id} com o número certo`, { col: "feitos", id: f.id, campo: ["texto"] })}</div>
           ${blocoVersao({ col: "feitos", id: f.id, campo: ["texto"] }) ? `<div class="pede on">${blocoVersao({ col: "feitos", id: f.id, campo: ["texto"] })}</div>` : ""}</div>`).join("")}</div>`).join("")}`
         : `<div class="vazio">Nenhum feito ainda. Anexe seu CV na aba Documentos e peça ao Claude: "monte meu banco de feitos a partir do CV".</div>${campoPedido({ tipo: "base", rotulo: "Feitos" }, "Ex.: monte meu banco de feitos a partir do CV")}`;
+    }
+    if (abaBase === "enriquecer") {
+      const rasc = rascunhoEnriquecer();
+      const historico = db.pedidos.filter((p) => p.tipo === "enriquecer");
+      corpo = `<p class="frase" style="margin-top:0">Jogue aqui tudo o que pode virar currículo ou feito: um projeto de que você se orgulha, números que lembrou, cursos, prêmios, ferramentas que domina, um print de certificado, uma avaliação de desempenho. Não precisa organizar: o Claude organiza.</p>
+        <div class="resposta" style="margin-top:14px"><textarea id="enr-texto" style="min-height:180px" placeholder="Ex.: em 2022 liderei a troca do sistema de estoque, que reduziu as perdas em uns 15%. Fiz o curso de Scrum da PUC em 2023. Uso Power BI todo dia." aria-label="O que você quer acrescentar">${esc(rasc.texto)}</textarea></div>
+        <div id="enr-arquivos" class="lista-kv" style="margin-top:12px">${rasc.arquivos.map((n) => `<div><span>${ic("arquivo")}</span><b style="flex:1">${esc(n)}</b><button class="btn txt nao" type="button" data-tirar-enr="${esc(n)}" aria-label="Tirar ${esc(n)}">${ic("x")}</button></div>`).join("")}</div>
+        <label class="soltar" style="margin-top:12px"><input type="file" id="enr-arquivo" accept=".pdf,.doc,.docx,.txt,.md,.rtf,.odt,.png,.jpg,.jpeg" multiple hidden><span>${ic("arquivo")}Anexar arquivos (PDF, Word, texto ou imagem)</span></label>
+        <div class="botoes"><button class="btn p g" type="button" id="enr-enviar">${ic("enviar")}Pôr na fila para o Claude organizar</button><span class="meta">Ele acrescenta ao perfil e cria feitos novos para você confirmar. Nada do que você já confirmou é mudado.</span></div>
+        ${historico.length ? `<h3 style="margin-top:24px">Já enviado</h3><div style="margin-top:8px">${historico.map((p) => itemPedido(p)).join("")}</div>` : ""}`;
     }
     if (abaBase === "documentos") corpo = `<p class="meta">CV, PDF do LinkedIn, portfólio em PDF. Ficam na pasta <b>documentos</b> do Vagabs, e o Claude lê quando precisa.</p>
       <div id="docs-lista" class="lista-kv" style="margin-top:14px"><p class="meta">Carregando…</p></div>
@@ -705,6 +720,16 @@
       if (i.dataset.k === "senioridades") db.preferencias.senioridade = db.preferencias.senioridades.join(", ");
       salvar(i.dataset.col);
     }));
+    // onde trabalhar: liga/desliga formato e as cidades de cada um
+    const R0 = db.preferencias;
+    const juntarCidades = () => { R0.cidades = [...new Set(lista(R0.modelos).filter((m) => m !== "Remoto").flatMap((m) => lista(R0.locais?.[m])))]; };
+    app.querySelectorAll("[data-modo-base]").forEach((i) => i.addEventListener("change", () => {
+      const m = i.dataset.modoBase; R0.modelos = i.checked ? [...new Set([...lista(R0.modelos), m])] : lista(R0.modelos).filter((x) => x !== m);
+      R0.locais = R0.locais || {}; if (i.checked && m !== "Remoto" && !lista(R0.locais[m]).length) R0.locais[m] = lista(R0.cidades).slice(0, 1);
+      juntarCidades(); salvar("preferencias"); render(true);
+    }));
+    app.querySelectorAll("[data-cid-base]").forEach((i) => i.addEventListener("change", () => { R0.locais = R0.locais || {}; R0.locais[i.dataset.cidBase] = i.value.split(",").map((x) => x.trim()).filter(Boolean); juntarCidades(); salvar("preferencias"); }));
+    document.getElementById("muda-cidade")?.addEventListener("change", (e) => { R0.muda_cidade = e.target.checked; salvar("preferencias"); });
     document.getElementById("sigilo-ativo")?.addEventListener("change", (e) => { db.sigilo.ativo = e.target.checked; salvar("sigilo", e.target.checked ? "Sigilo ligado" : "Sigilo desligado"); });
     const R = db.preferencias;
     app.querySelectorAll("[data-dim]").forEach((i) => i.addEventListener("change", () => { R.dimensoes[+i.dataset.dim].nome = i.value.trim(); salvar("preferencias"); }));
@@ -718,8 +743,38 @@
       row.querySelector("[data-pede]").addEventListener("click", () => { const p = row.querySelector(".pede"); p.classList.toggle("on"); p.querySelector("input")?.focus(); });
       row.querySelector("[data-conf]").addEventListener("click", () => { f.confirmado = !f.confirmado; salvar("feitos", f.confirmado ? `${f.id} confirmado` : `${f.id} desmarcado`); render(true); });
     });
+    if (abaBase === "enriquecer") ligarEnriquecer();
     if (abaBase === "documentos") VG.ligarDocumentos?.(document.getElementById("docs-lista"), document.getElementById("doc-arquivo"));
     document.getElementById("abrir-pasta")?.addEventListener("click", () => api("pasta/abrir", { metodo: "POST" }));
+  }
+
+  /* ---------- Base › Enriquecer: material solto para o Claude organizar ---------- */
+  const RASC_ENR = "vagabs-enriquecer";
+  function rascunhoEnriquecer() { try { const r = JSON.parse(localStorage.getItem(RASC_ENR) || "null"); if (r) return { texto: r.texto || "", arquivos: r.arquivos || [] }; } catch {} return { texto: "", arquivos: [] }; }
+  const guardarEnriquecer = (r) => { try { localStorage.setItem(RASC_ENR, JSON.stringify(r)); } catch {} };
+  function ligarEnriquecer() {
+    const ta = document.getElementById("enr-texto");
+    ta?.addEventListener("input", () => guardarEnriquecer({ ...rascunhoEnriquecer(), texto: ta.value }));
+    document.getElementById("enr-arquivo")?.addEventListener("change", async (e) => {
+      const r = rascunhoEnriquecer();
+      for (const f of e.target.files) {
+        try { const x = await api("documentos", { metodo: "POST", corpo: f, cabecalhos: { "X-Nome": encodeURIComponent(f.name), "X-Pasta": "enriquecer", "Content-Type": "application/octet-stream" } }); r.arquivos = [...new Set([...r.arquivos, x.nome])]; }
+        catch (err) { toast(`${f.name}: ${err.message}`); }
+      }
+      guardarEnriquecer({ ...r, texto: ta?.value ?? r.texto }); render(true);
+    });
+    app.querySelectorAll("[data-tirar-enr]").forEach((b) => b.addEventListener("click", async () => {
+      await api(`documentos?pasta=enriquecer&nome=${encodeURIComponent(b.dataset.tirarEnr)}`, { metodo: "DELETE" }).catch(() => {});
+      const r = rascunhoEnriquecer(); guardarEnriquecer({ ...r, texto: ta?.value ?? r.texto, arquivos: r.arquivos.filter((n) => n !== b.dataset.tirarEnr) }); render(true);
+    }));
+    document.getElementById("enr-enviar")?.addEventListener("click", () => {
+      const r = rascunhoEnriquecer(); const texto = (ta?.value || "").trim();
+      if (!texto && !r.arquivos.length) return toast("Escreva algo ou anexe um arquivo");
+      const p = novoPedido({ onde: { tipo: "base", id: "enriquecer", rotulo: "Enriquecer perfil" }, tipo: "enriquecer", texto: texto ? `Enriquecer o perfil: ${texto.slice(0, 90)}${texto.length > 90 ? "…" : ""}` : `Enriquecer o perfil com ${plural(r.arquivos.length, "arquivo", "arquivos")}` });
+      p.material = { texto, arquivos: r.arquivos.map((n) => `documentos/enriquecer/${n}`) };
+      guardarEnriquecer({ texto: "", arquivos: [] });
+      salvar("pedidos", MSG_FILA); render(true);
+    });
   }
 
   /* ---------- tela: Pedidos (a fila) ---------- */

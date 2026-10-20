@@ -55,8 +55,9 @@ async function gupy(termo, log) {
   }));
 }
 
-async function linkedin(termo, local, log) {
-  const q = new URLSearchParams({ keywords: termo, location: local || "Brazil", f_TPR: "r604800", start: "0" });
+// f_WT do LinkedIn: 1 presencial, 2 remoto, 3 híbrido
+async function linkedin(termo, local, log, wt = "") {
+  const q = new URLSearchParams({ keywords: termo, location: local || "Brazil", f_TPR: "r604800", start: "0", ...(wt ? { f_WT: wt } : {}) });
   const pagina = await baixar(`https://www.linkedin.com/jobs-guest/jobs/api/seeMoreJobPostings/search?${q}`, { log });
   return pagina.split("<li>").slice(1).map((card) => {
     const id = /jobPosting:(\d+)/.exec(card), titulo = /base-search-card__title[^>]*>([\s\S]*?)</.exec(card);
@@ -150,6 +151,39 @@ async function empresasAlvo(empresas, termos, log) {
   return saida;
 }
 
+/* ---------- onde a pessoa topa trabalhar ----------
+   Remoto vale qualquer cidade do Brasil; híbrido e presencial, só nas cidades de cada um
+   (ou em qualquer lugar, se ela aceita mudar). */
+function locaisDe(db) {
+  const R = db.ler("preferencias") || {};
+  const modelos = (R.modelos || []).map((m) => norm(m));
+  const locais = R.locais || Object.fromEntries((R.modelos || []).filter((m) => norm(m) !== "remoto").map((m) => [m, R.cidades || []]));
+  const cid = (nome) => (Object.entries(locais).find(([k]) => norm(k) === nome)?.[1] || []).map(norm).filter(Boolean);
+  return { remoto: modelos.includes("remoto"), hibrido: modelos.includes("hibrido"), presencial: modelos.includes("presencial"), cidHibrido: cid("hibrido"), cidPresencial: cid("presencial"), muda: !!R.muda_cidade, definido: modelos.length > 0 };
+}
+// buscas do LinkedIn: remoto no Brasil; cada cidade com os formatos que ela aceita ali
+function buscasLinkedin(L, localAntigo) {
+  if (!L.definido) return [[localAntigo || "Brazil", ""]];
+  const b = [];
+  if (L.remoto) b.push(["Brazil", "2"]);
+  if (L.muda && (L.hibrido || L.presencial)) b.push(["Brazil", [L.presencial && "1", L.hibrido && "3"].filter(Boolean).join(",")]);
+  else {
+    const cidades = [...new Set([...(L.hibrido ? L.cidHibrido : []), ...(L.presencial ? L.cidPresencial : [])])].slice(0, 4);
+    for (const c of cidades) b.push([`${c}, Brazil`, [L.presencial && L.cidPresencial.includes(c) && "1", L.hibrido && L.cidHibrido.includes(c) && "3"].filter(Boolean).join(",")]);
+  }
+  return b;
+}
+function encaixaLocal(item, L) {
+  if (!L.definido) return true;
+  const modelo = norm(item.modelo), local = norm(item.local);
+  const naCidade = (lista) => L.muda || lista.some((c) => local.includes(c));
+  if (/remot/.test(modelo) || (!modelo && /remot/.test(local))) return L.remoto;
+  if (/hibrid|hybrid/.test(modelo)) return L.hibrido && naCidade(L.cidHibrido);
+  if (/presencial|on site|onsite/.test(modelo)) return L.presencial && naCidade(L.cidPresencial);
+  // modelo desconhecido: fica se a cidade bate com algum formato aceito, ou se a pessoa topa remoto (o Claude confere)
+  return L.remoto || (L.hibrido && naCidade(L.cidHibrido)) || (L.presencial && naCidade(L.cidPresencial));
+}
+
 /* ---------- a coleta do dia ---------- */
 async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
   const CAPTURA = path.join(db.pasta, "captura");
@@ -163,6 +197,8 @@ async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
   const excluir = (cfg.excluir_titulo || []).map(norm).filter(Boolean);
   const diasMax = cfg.dias_max || 45;
   const bloqueio = (db.ler("sigilo").bloqueio || []).map(norm).filter(Boolean);
+  const L = locaisDe(db);
+  const buscasLI = buscasLinkedin(L, cfg.local);
   let vistas = new Set(); try { vistas = new Set(JSON.parse(fs.readFileSync(VISTAS, "utf8"))); } catch {}
   db.ler("vagas").forEach((v) => v.id_fonte && vistas.add(v.id_fonte));
 
@@ -172,7 +208,7 @@ async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
   for (const termo of termos) {
     progresso(`Buscando "${termo}" (${++n} de ${termos.length})`);
     if (fontesOn.gupy !== false) { somar(await gupy(termo, log)); await pausa(1500); }
-    if (fontesOn.linkedin !== false) { somar(await linkedin(termo, cfg.local, log)); await pausa(6000); }
+    if (fontesOn.linkedin !== false) for (const [onde, wt] of buscasLI) { somar(await linkedin(termo, onde, log, wt)); await pausa(6000); }
   }
   if (fontesOn.empresas !== false) { progresso("Lendo os sites das empresas-alvo"); somar(await empresasAlvo(db.ler("empresas"), termos, log), "Sites das empresas"); }
 
@@ -186,6 +222,8 @@ async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
     const velha = item.publicada && item.publicada < limite; // anúncio velho não é vaga aberta de verdade
     const semTermo = palavras.length && !palavras.some((p) => t.includes(p));
     if (velha || semTermo || excluir.some((p) => t.includes(p))) { foraFiltro++; vistas.add(k); continue; }
+    // fora de onde a pessoa topa trabalhar: não marca como vista (se ela mudar as cidades, a vaga volta)
+    if (!encaixaLocal(item, L)) { foraFiltro++; continue; }
     candidatas.push(item);
   }
   let d = 0;
@@ -220,4 +258,4 @@ async function buscar(termo, local, log = () => {}) {
   return r.slice(0, 40).map(({ descricao, ...x }) => ({ ...x, descricao: (descricao || "").slice(0, 600) }));
 }
 
-module.exports = { coletar, buscar, textoLimpo };
+module.exports = { coletar, buscar, textoLimpo, locaisDe, encaixaLocal, buscasLinkedin };

@@ -267,7 +267,6 @@
             <label><span>Termos de busca <small class="meta">(um por linha)</small></span><textarea data-lista="termos" rows="6">${linhas("termos")}</textarea></label>
             <label><span>O título precisa ter <small class="meta">(um por linha; vazio = qualquer)</small></span><textarea data-lista="palavras_titulo" rows="4">${linhas("palavras_titulo")}</textarea></label>
             <label><span>Nunca no título <small class="meta">(um por linha)</small></span><textarea data-lista="excluir_titulo" rows="4">${linhas("excluir_titulo")}</textarea></label>
-            <label><span>Local para o LinkedIn</span><input data-v="local" value="${esc(V.local || "")}" placeholder="Ex.: São Paulo, Brazil"></label>
             <label><span>Nota mínima: <b id="corte-cfg">${V.corte || 60}</b></span><input type="range" min="40" max="85" step="5" data-corte value="${V.corte || 60}" class="faixa"></label>
           </div>
           <div class="opcoes" style="margin-top:12px">${[["gupy", "Gupy"], ["linkedin", "LinkedIn público"], ["empresas", "Sites das empresas"]].map(([k, r]) => `<button type="button" class="ficha" data-fonte="${k}" aria-pressed="${F[k] !== false}">${r}</button>`).join("")}</div>
@@ -285,6 +284,16 @@
           ${a.estado === "disponivel" && a.notas ? `<div class="notas-txt">${esc(a.notas).replace(/\n/g, "<br>")}</div>` : ""}
           <div class="botoes">${a.estado === "disponivel" ? `<button class="btn p" type="button" data-atu="baixar">Baixar a atualização</button>` : a.estado === "pronta" ? `<button class="btn ok" type="button" data-atu="instalar">Reiniciar e atualizar</button>` : `<button class="btn" type="button" data-atu="procurar" ${["dev", "sem-repositorio", "procurando", "baixando"].includes(a.estado) ? "disabled" : ""}>${ic("atualizar")}Procurar atualizações</button>`}</div>
           <p class="meta" style="margin-top:10px">A atualização troca só o programa. Seus dados, documentos e configurações ficam onde estão.</p></section>
+        <section class="painel" id="painel-backup"><div class="cab"><h2>Backup</h2></div>${(() => {
+          const b = est.backup;
+          if (!b) return `<p class="meta">Conferindo…</p>`;
+          const ult = b.ultimo ? `Último: ${new Date(b.ultimo.quando).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}, ${VG.plural(b.ultimo.arquivos, "arquivo", "arquivos")}.` : "Nenhum backup ainda.";
+          const onde = b.destino ? `<p class="caminho-txt"><code>${esc(b.destino)}</code></p><p class="meta">${b.drive && b.destino === b.drive ? "É a pasta do Google Drive deste computador: o que vai para lá sobe para a nuvem sozinho." : "Pasta escolhida por você."}</p>`
+            : `<p class="aviso-linha">${ic("alerta")}Não achei o Google Drive neste computador.</p><p class="meta" style="margin-top:6px">Instale o <button class="btn txt" type="button" data-abrir-link="https://www.google.com/drive/download/">Google Drive para computador</button> e entre com a sua conta: ele cria a pasta "Meu Drive", e o Vagabs passa a usar sozinho. Ou escolha outra pasta.</p>`;
+          return `${onde}<p class="meta" style="margin-top:8px">${ult} Vão os seus dados, as vagas, as configurações, os documentos e as conversas. Ficam os 10 mais novos.</p>
+            <label class="interruptor"><input type="checkbox" id="backup-auto" ${b.auto ? "checked" : ""}><span>Fazer backup depois de cada varredura</span></label>
+            <div class="botoes"><button class="btn p" type="button" id="backup-fazer" ${b.destino ? "" : "disabled"}>${ic("check")}Fazer backup agora</button><button class="btn" type="button" id="backup-pasta">${ic("pasta")}Escolher outra pasta</button><button class="btn txt" type="button" id="backup-restaurar">${ic("atualizar")}Restaurar de um backup</button></div>`;
+        })()}</section>
         <section class="painel"><div class="cab"><h2>Pasta do Vagabs</h2></div><p class="caminho-txt"><code>${esc(est.pasta || "")}</code></p><button class="btn" type="button" id="abrir-pasta-cfg">${ic("pasta")}Abrir a pasta</button></section>
         <section class="painel"><div class="cab"><h2>Ajuda</h2></div><div class="botoes" style="margin-top:0"><button class="btn" type="button" id="refazer-tutorial">Refazer o tutorial</button><a class="btn" href="#/setup">Refazer o setup</a><button class="btn" type="button" id="ver-novidades">Novidades</button></div></section>
       </div></div></section>`;
@@ -297,7 +306,6 @@
     document.getElementById("salvar-busca")?.addEventListener("click", () => {
       const v = { ...C.varredura, fontes };
       document.querySelectorAll("[data-lista]").forEach((t) => { v[t.dataset.lista] = t.value.split("\n").map((s) => s.trim()).filter(Boolean); });
-      v.local = document.querySelector('[data-v="local"]').value.trim();
       v.corte = +document.querySelector("[data-corte]").value;
       C.varredura = v; VG.salvar("config", "Busca salva");
     });
@@ -305,6 +313,23 @@
     document.querySelector("[data-testar-gmail]")?.addEventListener("click", async () => { toast("Testando…"); try { est.ferramentas = await api("claude/ferramentas", { metodo: "POST" }); } catch (e) { toast(e.message); } VG.render(true); });
     document.getElementById("modelo")?.addEventListener("change", (e) => { C.claude = { ...C.claude, modelo: e.target.value }; VG.salvar("config", "Modelo salvo"); });
     document.querySelectorAll("[data-atu]").forEach((b) => b.addEventListener("click", async () => { est.atualizacao = await api(`atualizacao/${b.dataset.atu}`, { metodo: "POST" }); VG.render(true); }));
+    if (!est.backupCarregado) { est.backupCarregado = true; api("backup").then((b) => { est.backup = b; VG.render(true); }).catch(() => {}); }
+    document.querySelectorAll("[data-abrir-link]").forEach((b) => b.addEventListener("click", () => api("abrir", { metodo: "POST", corpo: { url: b.dataset.abrirLink } })));
+    document.getElementById("backup-auto")?.addEventListener("change", async (e) => { est.backup = await api("backup/auto", { metodo: "POST", corpo: { auto: e.target.checked } }); toast(e.target.checked ? "Backup junto com a varredura" : "Backup só quando você pedir"); });
+    document.getElementById("backup-pasta")?.addEventListener("click", async () => { est.backup = await api("backup/pasta", { metodo: "POST" }); VG.render(true); });
+    document.getElementById("backup-fazer")?.addEventListener("click", async (e) => {
+      e.target.disabled = true; toast("Fazendo o backup…");
+      const r = await api("backup/fazer", { metodo: "POST" }).catch((x) => ({ ok: false, motivo: x.message }));
+      toast(r.ok ? `Backup feito: ${VG.plural(r.arquivos, "arquivo", "arquivos")} (${r.kb} KB).` : r.motivo);
+      est.backup = await api("backup"); VG.render(true);
+    });
+    document.getElementById("backup-restaurar")?.addEventListener("click", () => modal({ titulo: "Restaurar um backup?", corpo: `<p class="frase" style="margin:0">Os dados de agora são trocados pelos do backup que você escolher. Antes, o Vagabs guarda uma cópia do que está aqui na pasta <b>_antes-de-restaurar</b>, então nada se perde.</p>`,
+      botoes: [{ rot: "Cancelar" }, { rot: "Escolher o backup", cls: "p", acao: async () => {
+        const r = await api("backup/restaurar", { metodo: "POST" }).catch((x) => ({ ok: false, motivo: x.message }));
+        if (r.cancelado) return;
+        if (!r.ok) return toast(r.motivo);
+        await VG.carregar(); toast(`Backup de ${new Date(r.de).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} restaurado.`); VG.render(true);
+      } }] }));
     document.getElementById("abrir-pasta-cfg")?.addEventListener("click", () => api("pasta/abrir", { metodo: "POST" }));
     document.getElementById("refazer-tutorial")?.addEventListener("click", () => tutorial.iniciar());
     document.getElementById("ver-novidades")?.addEventListener("click", () => modal({ titulo: "Novidades", corpo: (est.todasNovidades || []).map(fmtNovidade).join(""), botoes: [{ rot: "Fechar", cls: "p" }] }));
@@ -465,7 +490,8 @@
       } else if (e.tipo === "execucao") {
         est.execucao = e.execucao; desenharTrabalho(); atualizarPainelTrab();
         if (e.fim) fimTrabalho(e.fim);
-      } else if (e.tipo === "claude") est.claude = e.claude;
+      } else if (e.tipo === "claude") { est.claude = e.claude; if (VG.rotaAtual()[0] === "setup") VG.render(true); }
+      else if (e.tipo === "comando") { est.comando = e.comando; if (VG.rotaAtual()[0] === "setup") VG.render(true); if (e.terminou) toast(e.terminou === "instalar" ? "A instalação terminou. Conferindo…" : "O login terminou. Conferindo…"); }
       else if (e.tipo === "uso") est.uso = e.uso;
       else if (e.tipo === "limite") { est.limite = e.limite; desenharTrabalho(); }
       else if (e.tipo === "atualizacao") { est.atualizacao = e.atualizacao; avisarAtualizacao(); if (VG.rotaAtual()[0] === "config") redesenhar(); }
@@ -474,6 +500,7 @@
     fonte.onerror = () => {}; // o EventSource reconecta sozinho
   }
   async function fimTrabalho(f) {
+    est.backupCarregado = false; // a varredura pode ter feito backup
     await VG.carregar();
     // o chat se atualiza sozinho; só as outras telas precisam redesenhar com o que o Claude gravou
     if (f.silencioso) { if (VG.rotaAtual()[0] !== "claude") redesenhar(); return; }

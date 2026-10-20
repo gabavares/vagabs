@@ -18,14 +18,14 @@ Este arquivo é do app e é trocado a cada atualização. O que é da pessoa fic
 
 | Coleção | Tipo | O que é |
 |---|---|---|
-| `perfil` | objeto | nome, cidade, contato, linkedin, cargo_atual, resumo, trajetoria[], formacao, idiomas[] |
-| `preferencias` | objeto | setores[] (e setor, o mesmo em texto), cargos[], senioridades[] (e senioridade, em texto), contratos[], contrato_preferido, modelos[], cidades[], muda_cidade, faixa_minima, idiomas[], criterios[{nome, peso}], dimensoes[{nome, peso}], empresas_tipo[], evitar[] |
+| `perfil` | objeto | nome, cidade, contato, linkedin, cargo_atual, resumo, trajetoria[], formacao, idiomas[], cursos[], ferramentas[] |
+| `preferencias` | objeto | setores[] (e setor, o mesmo em texto), cargos[], senioridades[] (e senioridade, em texto), contratos[], contrato_preferido, modelos[] (Remoto, Híbrido, Presencial), locais {Híbrido: [cidades], Presencial: [cidades]}, cidades[] (todas juntas), muda_cidade, faixa_minima, idiomas[], criterios[{nome, peso}], dimensoes[{nome, peso}], empresas_tipo[], evitar[] |
 | `sigilo` | objeto | ativo, empregador, bloqueio[], alerta[] |
 | `config` | objeto | varredura {termos[], palavras_titulo[], excluir_titulo[], local, corte, fontes}, email {modo}, claude {modelo} |
 | `feitos` | lista | {id: F01…, grupo, texto, numeros, confirmar, confirmado, uso: cv/entrevista/nao, fonte} |
 | `empresas` | lista | {id: e01…, nome, prioridade: alta/média/baixa/bloqueio, setor, ats, url_carreiras, abertas, nota, sigilo} |
 | `vagas` | lista | ver abaixo |
-| `pedidos` | lista | {id, tipo: pedido/versao/kit, onde{tipo,id,rotulo}, alvo{col,id,campo[]}, texto, status, criado, respondido, resposta, versao} |
+| `pedidos` | lista | {id, tipo: pedido/versao/kit/enriquecer, onde{tipo,id,rotulo}, alvo{col,id,campo[]}, material{texto, arquivos[]}, texto, status, criado, respondido, resposta, versao} |
 | `varreduras` | lista | {data: "AAAA-MM-DD HH:MM", fontes[], lidas, bloqueadas, novas, abaixo_do_corte} |
 
 **Vaga**: `id` (`v001`…, use `proximo_id vagas v`), `id_fonte`, `fonte`, `url`, `empresa`, `cargo`, `area`, `local`, `modelo`, `contrato`, `faixa` (ou null), `publicada`, `captada` (AAAA-MM-DD), `estado`, `nota` (0–100), `dimensoes` {nome: 0–100}, `motivos` [2–3 frases], `alertas` [texto, **só de sigilo**], `observacoes` [pontos de atenção que não são sigilo], `resumo` (2–3 frases), `etapas` [{data, tipo, nota, origem?}], `proxima` {data, hora, texto} (opcional), `perguntas` (opcional), `kit` (opcional), `exemplo` (só na vaga de exemplo).
@@ -48,6 +48,10 @@ O app te chama com o id do pedido. Leia com `ler pedidos <id>` e o que ele apont
   - Respostas em primeira pessoa, curtas (até ~700 caracteres), cada uma apoiada em feitos reais (prefira os confirmados; `uso: "nao"` fica de fora; `uso: "entrevista"` não vai em texto escrito).
   - `carta`: 120 a 200 palavras, pela vaga, sem clichê. `anexos`: o que mandar.
   - Depois: `estado` → `kit`, etapa `{"data": hoje, "tipo": "kit", "nota": "Kit montado pelo Claude"}` (ferramenta `etapa`) e pedido `respondido` com um resumo de 1 frase.
+- **`tipo: "enriquecer"`**: a pessoa juntou material solto em `material` (`texto` e `arquivos`, caminhos dentro da pasta; leia cada um com Read). Organize:
+  - `perfil`: acrescente o que for novo (trajetoria, formacao, idiomas, `cursos` [{nome, instituicao, ano}], `ferramentas` [nomes]). Não apague nada; o `resumo` só muda se ficar claramente melhor.
+  - `feitos`: cada conquista nova vira um feito (`proximo_id feitos F`), com `grupo`, `texto` em uma frase, `numeros`, `confirmar` com o que falta, `confirmado: false`, `uso: "cv"`, `fonte: "Enriquecer AAAA-MM-DD"`. Se completar um feito **não confirmado**, atualize esse feito. Feito **confirmado** nunca muda: sugira na `resposta`.
+  - Termine `respondido` com uma `resposta` curta listando o que entrou (ex.: "2 feitos novos (F09, F10), 1 curso e 3 ferramentas no perfil").
 - Se não der para fazer, explique por quê em `resposta` e marque `respondido`.
 
 ## Varredura
@@ -56,12 +60,13 @@ O app já coletou as vagas do dia. Você recebe a data.
 
 1. **Leia** a coleta com a ferramenta `captura`, página por página (ela devolve 8 candidatas por vez, com a descrição resumida; peça `pagina: 2`, `3`… até a última), e também `perfil`, `preferencias`, `sigilo`, `feitos` e as vagas existentes (para não duplicar: compare `id_fonte`, e empresa + cargo).
 2. **Sigilo antes de tudo** (se ativo): empresa em `bloqueio` → descarte (conta como bloqueada); vaga "Confidencial" do mesmo ramo e cidade do empregador atual → entra com alerta "Sigilo: vaga confidencial. Pode ser o seu empregador."; empresa em `alerta` → entra com alerta dizendo a regra.
-3. **Nota de aderência (0–100)** pelas `preferencias.dimensoes` (cada uma 0–100, média ponderada pelos pesos). Sem dimensões definidas, use: Cargo e senioridade (peso 2), Área e setor (2), Encaixe com os feitos (1), Contrato (1), Local e modelo (1), Idiomas (1), Faixa (1, só quando houver). Vagas `reprovada` e seus `motivos_reprovacao` pesam contra vagas parecidas.
-4. **Corte**: `config.varredura.corte` (padrão 60). Abaixo não vira vaga (conta como "abaixo do corte"). Acima: `adicionar vagas` com `estado: "nova"`, `captada: <data>`, 2 a 3 `motivos` citando feitos pelo id (ex.: "(F03)"), `resumo` de 2 a 3 frases, `alertas` (só sigilo), `observacoes`, `dimensoes`, e `perguntas` se a coleta trouxer.
-5. **E-mail** (só se `config.email.modo` for `"gmail"`): busque mensagens dos últimos 3 dias de processos seletivos (Gupy, LinkedIn, sistemas de vagas, domínios das empresas das vagas ativas). Convite, teste, case, entrevista, recusa ou proposta viram etapa com `"origem": "email"` na vaga certa, e o `estado` acompanha (`processo`, `proposta`, `encerrada` com `desfecho`). Data e hora de entrevista vão em `proxima`. Alerta de vaga com vaga boa: trate como candidata (passos 2 a 4).
-6. **Registre**: `adicionar varreduras {"data": "<data> <HH:MM agora>", "fontes": [...], "lidas": N, "bloqueadas": B, "novas": K, "abaixo_do_corte": A}`. `lidas` é o da coleta; `bloqueadas` soma as da coleta e as suas; `novas` são as vagas criadas; `abaixo_do_corte` é o resto. Os números têm que fechar.
-7. **Empresas**: vaga nova de empresa da lista soma em `abertas`.
-8. Última mensagem: 2 a 4 linhas (quantas vagas novas, a melhor, alertas, processos que mudaram pelo e-mail).
+3. **Onde trabalhar**: remoto vale qualquer cidade do Brasil (se `Remoto` está em `modelos`). Híbrido e presencial só valem nas cidades de `locais.Híbrido` e `locais.Presencial`, a não ser que `muda_cidade` seja verdadeiro. Exemplo: remoto + híbrido em Pelotas aceita vaga remota de São Paulo, mas não vaga híbrida em São Paulo. Vaga que não encaixa em nenhum formato aceito fica abaixo do corte; modelo desconhecido vai em `observacoes` ("Modelo de trabalho a confirmar").
+4. **Nota de aderência (0–100)** pelas `preferencias.dimensoes` (cada uma 0–100, média ponderada pelos pesos). Sem dimensões definidas, use: Cargo e senioridade (peso 2), Área e setor (2), Encaixe com os feitos (1), Contrato (1), Local e modelo (1), Idiomas (1), Faixa (1, só quando houver). Vagas `reprovada` e seus `motivos_reprovacao` pesam contra vagas parecidas.
+5. **Corte**: `config.varredura.corte` (padrão 60). Abaixo não vira vaga (conta como "abaixo do corte"). Acima: `adicionar vagas` com `estado: "nova"`, `captada: <data>`, 2 a 3 `motivos` citando feitos pelo id (ex.: "(F03)"), `resumo` de 2 a 3 frases, `alertas` (só sigilo), `observacoes`, `dimensoes`, e `perguntas` se a coleta trouxer.
+6. **E-mail** (só se `config.email.modo` for `"gmail"`): busque mensagens dos últimos 3 dias de processos seletivos (Gupy, LinkedIn, sistemas de vagas, domínios das empresas das vagas ativas). Convite, teste, case, entrevista, recusa ou proposta viram etapa com `"origem": "email"` na vaga certa, e o `estado` acompanha (`processo`, `proposta`, `encerrada` com `desfecho`). Data e hora de entrevista vão em `proxima`. Alerta de vaga com vaga boa: trate como candidata (passos 2 a 5).
+7. **Registre**: `adicionar varreduras {"data": "<data> <HH:MM agora>", "fontes": [...], "lidas": N, "bloqueadas": B, "novas": K, "abaixo_do_corte": A}`. `lidas` é o da coleta; `bloqueadas` soma as da coleta e as suas; `novas` são as vagas criadas; `abaixo_do_corte` é o resto. Os números têm que fechar.
+8. **Empresas**: vaga nova de empresa da lista soma em `abertas`.
+9. Última mensagem: 2 a 4 linhas (quantas vagas novas, a melhor, alertas, processos que mudaram pelo e-mail).
 
 ## Preparação (fim do setup)
 

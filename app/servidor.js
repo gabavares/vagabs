@@ -14,6 +14,7 @@ const claude = require("./claude");
 const consoleP = require("./console");
 const trab = require("./trabalhos");
 const atual = require("./atualizacao");
+const backup = require("./backup");
 const { criar, COLECOES } = require("../nucleo/dados");
 
 const RAIZ = path.join(__dirname, "..");
@@ -52,7 +53,7 @@ function estadoApp() {
   const dcfg = db ? db.ler("config") : {};
   return {
     versao: pasta.VERSAO, pasta: c.pasta || null, pastaPadrao: pasta.padrao(), setup: !!dcfg.setup?.concluido, tutorial: dcfg.tutorial || null,
-    claude: est.vivo.claude, execucao: est.vivo.execucao, uso: est.vivo.uso, limite: est.vivo.limite, atualizacao: est.vivo.atualizacao,
+    claude: est.vivo.claude, execucao: est.vivo.execucao, comando: est.vivo.comando || null, uso: est.vivo.uso, limite: est.vivo.limite, atualizacao: est.vivo.atualizacao,
     novidades, todasNovidades: NOVIDADES, console: { ativo: consoleP.estado().ativo },
   };
 }
@@ -125,7 +126,10 @@ const ROTAS = {
       sair: "/exit",
     };
     if (!CMDS[qual]) throw new Error("comando desconhecido");
-    return { ok: consoleP.comando(db?.pasta, CMDS[qual]) };
+    if (est.vivo.comando) throw new Error("Espere o comando que está rodando terminar.");
+    // instalar e login são acompanhados até o fim: o setup não deixa seguir enquanto rodam
+    await consoleP.comando(db?.pasta, CMDS[qual], { acompanhar: ["instalar", "login"].includes(qual) ? qual : null });
+    return { ok: true };
   },
   "POST /api/fila/rodar": () => { if (!db) throw new Error("sem pasta"); trab.rodarFila(); return { ok: true }; },
   "POST /api/fila/parar": () => ({ ok: trab.pararFila() }),
@@ -143,6 +147,24 @@ const ROTAS = {
     if (d.preparar) trab.preparar({ sugerirEmpresas: !!d.sugerirEmpresas, temDocumentos: fs.readdirSync(path.join(db.pasta, "documentos")).length > 0 });
     else trab.garantirExemplo();
     return { ok: true };
+  },
+  "GET /api/backup": () => backup.estado(db),
+  "POST /api/backup/fazer": () => { if (!db) throw new Error("sem pasta"); return backup.fazer(db); },
+  "POST /api/backup/pasta": async () => {
+    const r = await dialog.showOpenDialog(BrowserWindow.getAllWindows()[0], { title: "Onde guardar os backups do Vagabs", defaultPath: backup.estado(db).destino || undefined, properties: ["openDirectory", "createDirectory"] });
+    if (r.canceled) return backup.estado(db);
+    db.objeto("config", { backup: { ...db.ler("config").backup, pasta: r.filePaths[0] } });
+    return backup.estado(db);
+  },
+  "POST /api/backup/auto": async (req) => { const { auto } = await lerJson(req); db.objeto("config", { backup: { ...db.ler("config").backup, auto: !!auto } }); return backup.estado(db); },
+  "POST /api/backup/restaurar": async () => {
+    if (trab.ocupado()) throw new Error("Espere o Claude terminar o que está fazendo.");
+    const e = backup.estado(db);
+    const r = await dialog.showOpenDialog(BrowserWindow.getAllWindows()[0], { title: "Escolha o backup do Vagabs", defaultPath: e.destino ? path.join(e.destino, backup.RAIZ_BACKUP) : undefined, properties: ["openDirectory"] });
+    if (r.canceled) return { ok: false, cancelado: true };
+    const res = backup.restaurar(db, r.filePaths[0]);
+    if (res.ok) pasta.renovar(db.pasta);
+    return res;
   },
   "GET /api/conversa": () => (db ? trab.conversa() : { mensagens: [] }),
   "POST /api/conversa/enviar": async (req) => {
@@ -209,13 +231,16 @@ async function tratar(req, res) {
     if (p === "/api/documentos" && req.method === "POST") {
       if (precisaPasta(res)) return;
       const nome = nomeSeguro(decodeURIComponent(req.headers["x-nome"] || ""));
-      if (!/\.(pdf|docx?|txt|md|rtf|odt)$/i.test(nome)) return json(res, 400, { erro: "Envie PDF, Word ou texto." });
-      fs.writeFileSync(path.join(db.pasta, "documentos", nome), await corpo(req));
+      if (!/\.(pdf|docx?|txt|md|rtf|odt|png|jpe?g)$/i.test(nome)) return json(res, 400, { erro: "Envie PDF, Word, texto ou imagem." });
+      // material do Enriquecer fica numa subpasta própria
+      const dir = path.join(db.pasta, "documentos", req.headers["x-pasta"] === "enriquecer" ? "enriquecer" : "");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, nome), await corpo(req));
       return json(res, 200, { ok: true, nome });
     }
     if (p === "/api/documentos" && req.method === "DELETE") {
       const nome = nomeSeguro(url.searchParams.get("nome"));
-      fs.rmSync(path.join(db.pasta, "documentos", nome), { force: true });
+      fs.rmSync(path.join(db.pasta, "documentos", url.searchParams.get("pasta") === "enriquecer" ? "enriquecer" : "", nome), { force: true });
       return json(res, 200, { ok: true });
     }
     const rota = ROTAS[`${req.method} ${p}`];
@@ -225,6 +250,9 @@ async function tratar(req, res) {
     return json(res, 500, { erro: e.message });
   }
 }
+
+// terminou de instalar ou de fazer login: confere o Claude Code de novo sozinho
+consoleP.quandoTerminar(() => claude.checar().catch(() => {}));
 
 function iniciar() {
   const p = est.config().pasta;

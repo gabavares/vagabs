@@ -52,7 +52,8 @@ const FERRAMENTAS = [
     inputSchema: { type: "object", properties: {} },
     fazer: () => {
       const dir = path.join(PASTA, "documentos"); if (!fs.existsSync(dir)) return [];
-      return fs.readdirSync(dir, { withFileTypes: true }).filter((f) => f.isFile()).map((f) => ({ nome: f.name, caminho: path.join(dir, f.name), kb: Math.round(fs.statSync(path.join(dir, f.name)).size / 1024) }));
+      // inclui as subpastas (o material do Enriquecer fica em documentos/enriquecer)
+      return fs.readdirSync(dir, { withFileTypes: true, recursive: true }).filter((f) => f.isFile()).map((f) => { const c = path.join(f.parentPath || f.path || dir, f.name); return { nome: path.relative(dir, c), caminho: c, kb: Math.round(fs.statSync(c).size / 1024) }; });
     } },
   { name: "buscar_vagas", description: "Busca avulsa de vagas na Gupy e no LinkedIn público, sem gravar nada. Para pedidos do tipo 'procura vagas de X'.",
     inputSchema: { type: "object", properties: { termo: { type: "string" }, local: { type: "string", description: "ex.: São Paulo, Brazil" } }, required: ["termo"] },

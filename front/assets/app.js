@@ -409,6 +409,7 @@
               <div class="chips"><span class="etiqueta ${v.contrato === "PJ" ? "pj" : ""}">${esc(v.contrato || "Contrato a confirmar")}</span><span class="etiqueta">${esc(v.local || "Local a confirmar")}</span>${v.modelo ? `<span class="etiqueta">${esc(v.modelo)}</span>` : ""}${v.area ? `<span class="etiqueta">${esc(v.area)}</span>` : ""}<span class="etiqueta">${v.faixa ? esc(v.faixa) : "Faixa não informada"}</span></div>
               <p class="resumo">${esc(v.resumo)}</p>
               ${risco ? `<div class="alertas-box">${v.alertas.map((a) => `<p>${ic("cadeado")}<span>${esc(a)}</span></p>`).join("")}</div>` : ""}
+              ${observacoes(v)}
               <ul class="motivos">${(v.motivos || []).map((m) => `<li>${ic("check")}<span>${esc(m)}</span></li>`).join("")}</ul>
               ${usaFeitos(v)}
               <div class="rodape"><span class="meta">${esc(v.fonte)}${v.publicada ? ` · publicada ${dm(v.publicada)}` : ""} · captada ${dm(v.captada)}</span><button class="btn" type="button" data-virar>${ic("virar")}Ver a nota por dimensão</button></div>
@@ -440,6 +441,8 @@
         </div>
       </div></section>`;
   }
+  // pontos de atenção que não são sigilo (senioridade, faixa, contrato…): neutros, sem pedir confirmação
+  const observacoes = (v) => (lista(v.observacoes).length ? `<ul class="observacoes">${v.observacoes.map((o) => `<li>${ic("alerta")}<span>${esc(o)}</span></li>`).join("")}</ul>` : "");
   function usaFeitos(v) {
     const citados = [...new Set((v.motivos || []).join(" ").match(/F\d+/g) || [])];
     const L = (citados.length ? citados.map((id) => db.feitos.find((f) => f.id === id)) : db.feitos.filter((f) => f.uso === "cv")).filter(Boolean).slice(0, 4);
@@ -531,7 +534,7 @@
           ${k ? `<section class="painel" data-tut="guia"><div class="cab"><h2>Guia de candidatura</h2><span class="meta">${feitos} de ${passosK.length} passos · ${esc(k.plataforma || "")}</span></div><div class="medidor"><i style="width:${passosK.length ? (feitos / passosK.length) * 100 : 0}%"></i></div><div class="passos">${passos}</div></section>
           <section class="painel"><div class="cab"><h2>Carta</h2><span><button class="btn txt" type="button" data-versao-rapida='${esc(JSON.stringify({ col: "vagas", id: v.id, campo: ["kit", "carta"] }))}' data-rotulo="Carta">${ic("versao")}Pedir uma versão</button><button class="btn txt" type="button" data-copiar-carta>${ic("copiar")}Copiar</button></span></div><div class="resposta"><textarea id="carta" style="min-height:220px" aria-label="Carta">${esc(k.carta || "")}</textarea></div>${blocoVersao({ col: "vagas", id: v.id, campo: ["kit", "carta"] })}</section>` : ""}
           ${pend}
-          ${!k && !pend ? `<section class="painel"><div class="cab"><h2>Sobre a vaga</h2></div><p class="frase">${esc(v.resumo || "Sem resumo.")}</p>${(v.motivos || []).length ? `<ul class="motivos">${v.motivos.map((m) => `<li>${ic("check")}<span>${esc(m)}</span></li>`).join("")}</ul>` : ""}</section><section class="painel"><div class="cab"><h2>Acompanhamento</h2></div>${ATIVAS.includes(v.estado) && (v.etapas || []).length ? trilhas([v], { eixo: true }) : `<p class="meta">Fase: ${esc(ESTADOS[v.estado]?.[1].toLowerCase() || v.estado)}.</p>`}</section>` : ""}
+          ${!k && !pend ? `<section class="painel"><div class="cab"><h2>Sobre a vaga</h2></div><p class="frase">${esc(v.resumo || "Sem resumo.")}</p>${observacoes(v)}${(v.motivos || []).length ? `<ul class="motivos">${v.motivos.map((m) => `<li>${ic("check")}<span>${esc(m)}</span></li>`).join("")}</ul>` : ""}</section><section class="painel"><div class="cab"><h2>Acompanhamento</h2></div>${ATIVAS.includes(v.estado) && (v.etapas || []).length ? trilhas([v], { eixo: true }) : `<p class="meta">Fase: ${esc(ESTADOS[v.estado]?.[1].toLowerCase() || v.estado)}.</p>`}</section>` : ""}
         </div>
         <div class="coluna lateral-fixa">
           <section class="painel"><div class="cab"><h2>Anexos</h2></div><div class="lista-kv">${lista(k?.anexos || ["CV (o kit indica a versão)"]).map((a) => `<div><span>${ic("arquivo")}</span><b style="flex:1">${esc(a)}</b></div>`).join("")}</div></section>

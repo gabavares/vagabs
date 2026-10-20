@@ -371,8 +371,16 @@
   }
   async function fimTrabalho(f) {
     await VG.carregar();
-    if (f.tipo === "fila") toast(f.limite ? "O plano bateu no limite. O resto da fila espera." : `Fila terminada: ${VG.plural(f.feitos || 0, "pedido feito", "pedidos feitos")}${f.falhas ? `, ${f.falhas} sem terminar` : ""}.`);
-    if (f.tipo === "varredura") toast(f.ok ? (f.semClaude ? "Varredura feita: nenhuma vaga nova desta vez." : `Varredura feita: ${VG.plural(f.novas || 0, "vaga nova", "vagas novas")} para triar.`) : `A varredura não terminou: ${f.erro || ""}`);
+    let msg = "";
+    if (f.tipo === "fila") msg = f.limite ? "O plano bateu no limite. O resto da fila espera." : `Fila terminada: ${VG.plural(f.feitos || 0, "pedido feito", "pedidos feitos")}${f.falhas ? `, ${f.falhas} sem terminar` : ""}.`;
+    if (f.tipo === "varredura") msg = f.ok ? (f.semClaude ? "Varredura feita: nenhuma vaga nova desta vez." : `Varredura feita: ${VG.plural(f.novas || 0, "vaga nova", "vagas novas")} para triar.`) : `A varredura não terminou: ${f.erro || ""}`;
+    if (msg) {
+      toast(msg);
+      // o popup de progresso, se aberto, vira o resumo com um atalho para o que mudou
+      const c = painelTrab?.isConnected && painelTrab !== painelPrep && painelTrab.querySelector("[data-trab-corpo]");
+      if (c) { const h = painelTrab.querySelector(".modal-cab h2"); if (h) h.textContent = f.tipo === "varredura" ? "Varredura terminada" : "Fila terminada";
+        const ir = f.tipo === "varredura" ? ["#/triagem", "Ir para a triagem"] : ["#/pedidos", "Ver os pedidos"]; c.innerHTML = `<p class="frase" style="margin:0">${esc(msg)}</p><a class="btn p" style="margin-top:14px" href="${ir[0]}" data-fechar-trab>${ir[1]} ${ic("seta")}</a>`; c.querySelector("[data-fechar-trab]").addEventListener("click", () => painelTrab.sair()); }
+    }
     if (f.tipo === "preparar") {
       if (painelPrep?.isConnected) painelPrep.sair();
       painelPrep = null;

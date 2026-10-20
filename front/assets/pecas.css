@@ -9,6 +9,11 @@
 .selo-exemplo { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 4px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--vez-t); background: var(--vez-bg); box-shadow: inset 0 0 0 1px #efd28a; flex: none; }
 .vaga .linha1 .selo-exemplo { align-self: center; }
 
+/* pontos de atenção da vaga (não são sigilo) */
+.observacoes { list-style: none; display: grid; gap: 6px; margin-top: 16px; }
+.observacoes li { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; font-size: 14px; line-height: 20px; color: var(--vez-t); }
+.observacoes .svg { margin-top: 2px; }
+
 /* barra: fila e trabalho do Claude */
 .trabalho { display: flex; align-items: center; }
 .barra .direita .trab { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; font-weight: 600; white-space: nowrap; }

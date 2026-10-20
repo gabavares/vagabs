@@ -34,13 +34,19 @@ const FERRAMENTAS = [
   { name: "etapa", description: "Acrescenta uma etapa na linha do tempo de uma vaga: {data: AAAA-MM-DD, tipo, nota, origem?}.",
     inputSchema: { type: "object", properties: { vaga: { type: "string" }, etapa: { type: "object" } }, required: ["vaga", "etapa"] },
     fazer: ({ vaga, etapa }) => { const v = db.etapa(vaga, etapa); return { id: v.id, estado: v.estado, etapas: v.etapas.length }; } },
-  { name: "captura", description: "Lê a coleta do dia feita pelo app antes da varredura (candidatas, lidas, bloqueadas). Sem data, a mais recente.",
-    inputSchema: { type: "object", properties: { data: { type: "string", description: "AAAA-MM-DD" } } },
-    fazer: ({ data }) => {
+  { name: "captura", description: "Lê a coleta do dia feita pelo app antes da varredura, em páginas de 8 candidatas com a descrição resumida. A resposta diz quantas páginas há; peça a próxima até a última. Sem data, a mais recente.",
+    inputSchema: { type: "object", properties: { data: { type: "string", description: "AAAA-MM-DD" }, pagina: { type: "number", description: "1, 2, 3… (padrão 1)" } } },
+    fazer: ({ data, pagina = 1 }) => {
       const dir = path.join(PASTA, "captura");
       const arq = data ? `${data}.json` : (fs.existsSync(dir) ? fs.readdirSync(dir).filter((f) => /^\d{4}-\d\d-\d\d\.json$/.test(f)).sort().pop() : null);
       if (!arq || !fs.existsSync(path.join(dir, arq))) return { erro: "nenhuma coleta encontrada" };
-      return JSON.parse(fs.readFileSync(path.join(dir, arq), "utf8"));
+      const c = JSON.parse(fs.readFileSync(path.join(dir, arq), "utf8"));
+      // em páginas e com a descrição resumida: a coleta inteira passa de 100 mil caracteres
+      const POR = 8, total = (c.candidatas || []).length, paginas = Math.max(1, Math.ceil(total / POR));
+      const p = Math.min(Math.max(1, Math.floor(pagina)), paginas);
+      const { candidatas, ...resto } = c;
+      return { ...resto, total_candidatas: total, pagina: p, paginas,
+        candidatas: (candidatas || []).slice((p - 1) * POR, p * POR).map((x) => ({ ...x, descricao: String(x.descricao || "").slice(0, 1500) })) };
     } },
   { name: "documentos", description: "Lista os arquivos da pasta documentos (CVs, PDF do LinkedIn, cartas). Leia o conteúdo com a ferramenta Read no caminho devolvido.",
     inputSchema: { type: "object", properties: {} },

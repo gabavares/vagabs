@@ -25,9 +25,10 @@ function legivel(p) {
   if (p.tipo === "texto") return p.texto.length > 220 ? `${p.texto.slice(0, 220)}…` : p.texto;
   const e = p.entrada || {}, n = p.nome || "";
   const c = NOMES[e.colecao] || e.colecao || "";
+  const em = c.replace(/^(as|os|a|o) /, (m, art) => ({ as: "nas ", os: "nos ", a: "na ", o: "no " }[art]));
   const m = {
-    mcp__vagabs__ler: `Lendo ${c}`, mcp__vagabs__atualizar: `Gravando em ${c}`, mcp__vagabs__adicionar: `Acrescentando em ${c}`, mcp__vagabs__objeto: `Atualizando ${c}`,
-    mcp__vagabs__etapa: "Registrando uma etapa", mcp__vagabs__captura: "Lendo a coleta do dia", mcp__vagabs__documentos: "Abrindo seus documentos",
+    mcp__vagabs__ler: `Lendo ${c}`, mcp__vagabs__atualizar: `Gravando ${em}`, mcp__vagabs__adicionar: `Acrescentando ${em}`, mcp__vagabs__objeto: `Atualizando ${c}`,
+    mcp__vagabs__etapa: "Registrando uma etapa", mcp__vagabs__captura: `Lendo a coleta do dia${e.pagina > 1 ? ` (página ${e.pagina})` : ""}`, mcp__vagabs__documentos: "Abrindo seus documentos",
     mcp__vagabs__buscar_vagas: `Buscando vagas: ${e.termo || ""}`, mcp__vagabs__proximo_id: null, ToolSearch: null,
     WebSearch: `Pesquisando: ${e.query || ""}`, WebFetch: `Abrindo ${(() => { try { return new URL(e.url).hostname; } catch { return "uma página"; } })()}`,
     Read: `Lendo ${e.file_path ? path.basename(e.file_path) : "um arquivo"}`, Write: `Escrevendo ${e.file_path ? path.basename(e.file_path) : "um arquivo"}`, Edit: `Editando ${e.file_path ? path.basename(e.file_path) : "um arquivo"}`,

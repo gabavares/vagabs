@@ -11,7 +11,7 @@
     "start": "electron .",
     "conferir": "node ferramentas/conferir.js",
     "pacote": "node ferramentas/conferir.js && electron-builder --win nsis --publish never && node ferramentas/conferir.js --pacote",
-    "publicar": "node ferramentas/conferir.js && node ferramentas/notas.js && electron-builder --win nsis --publish always && node ferramentas/conferir.js --pacote"
+    "publicar": "node ferramentas/conferir.js && node ferramentas/notas.js && (electron-builder --win nsis --publish always || electron-builder --win nsis --publish always) && node ferramentas/conferir.js --pacote"
   },
   "vagabs": {
     "github": {

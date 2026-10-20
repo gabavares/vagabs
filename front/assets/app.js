@@ -384,9 +384,44 @@
 
   /* ---------- tela: Triagem ---------- */
   let triSel = null, virado = false, confirmarAlerta = false;
+  // filtros da fila de triagem (ficam lembrados neste computador)
+  const FILTRO_VAZIO = { texto: "", cidade: "", modelo: "", contrato: "", nota: 0, salario: false, semAlerta: false, depois: true };
+  let filtro = (() => { try { return { ...FILTRO_VAZIO, ...JSON.parse(localStorage.getItem("vagabs-filtro") || "{}") }; } catch { return { ...FILTRO_VAZIO }; } })();
+  const guardarFiltro = () => { try { localStorage.setItem("vagabs-filtro", JSON.stringify(filtro)); } catch {} };
+  const semAcento = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const cidadeDe = (v) => String(v.local || "").split(/[,\-–]/)[0].trim();
+  const modeloDe = (v) => { const m = semAcento(v.modelo); return /remot/.test(m) ? "Remoto" : /hibrid|hybrid/.test(m) ? "Híbrido" : /presencial|on.?site/.test(m) ? "Presencial" : "A confirmar"; };
+  const contratoDe = (v) => v.contrato || "A confirmar";
+  function passaFiltro(v) {
+    const f = filtro;
+    if (f.texto && !semAcento(`${v.empresa} ${v.cargo} ${v.area || ""}`).includes(semAcento(f.texto))) return false;
+    if (f.cidade && cidadeDe(v) !== f.cidade) return false;
+    if (f.modelo && modeloDe(v) !== f.modelo) return false;
+    if (f.contrato && contratoDe(v) !== f.contrato) return false;
+    if (f.nota && (v.nota || 0) < f.nota) return false;
+    if (f.salario && !v.faixa) return false;
+    if (f.semAlerta && (v.alertas || []).length) return false;
+    if (!f.depois && v.estado === "depois") return false;
+    return true;
+  }
+  const filtrosAtivos = () => ["texto", "cidade", "modelo", "contrato", "nota", "salario", "semAlerta"].filter((k) => filtro[k]).length + (filtro.depois ? 0 : 1);
+  function barraFiltros(todas) {
+    const opcoes = (fn) => [...new Set(todas.map(fn).filter(Boolean))].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    const sel = (k, rot, lista) => `<label class="filtro-sel"><span>${rot}</span><select data-filtro="${k}"><option value="">Todas</option>${lista.map((o) => `<option value="${esc(o)}" ${filtro[k] === o ? "selected" : ""}>${esc(o)}</option>`).join("")}</select></label>`;
+    return `<div class="filtros painel" data-tut="filtros">
+      <input type="search" data-filtro="texto" value="${esc(filtro.texto)}" placeholder="Buscar empresa ou cargo" aria-label="Buscar empresa ou cargo">
+      ${sel("cidade", "Cidade", opcoes(cidadeDe))}${sel("modelo", "Modelo", opcoes(modeloDe))}${sel("contrato", "Contrato", opcoes(contratoDe))}
+      <label class="filtro-sel"><span>Nota</span><select data-filtro="nota">${[0, 60, 70, 80, 90].map((n) => `<option value="${n}" ${+filtro.nota === n ? "selected" : ""}>${n ? `${n} ou mais` : "Qualquer"}</option>`).join("")}</select></label>
+      <label class="filtro-chk"><input type="checkbox" data-filtro="salario" ${filtro.salario ? "checked" : ""}><span>Com salário informado</span></label>
+      <label class="filtro-chk"><input type="checkbox" data-filtro="semAlerta" ${filtro.semAlerta ? "checked" : ""}><span>Sem alerta de sigilo</span></label>
+      <label class="filtro-chk"><input type="checkbox" data-filtro="depois" ${filtro.depois ? "checked" : ""}><span>Mostrar "para depois"</span></label>
+      ${filtrosAtivos() ? `<button class="btn txt" type="button" data-limpar-filtro>Limpar filtros</button>` : ""}
+    </div>`;
+  }
   const MOTIVOS_REPROVA = ["Senioridade alta", "Senioridade baixa", "Exige formação ou curso que não tenho", "Exige experiência em setor que não tenho", "Salário baixo", "Contrato", "Presencial demais", "Longe", "Empresa não me interessa", "Sigilo"];
   function telaTriagem(id) {
-    const fila = db.vagas.filter((v) => v.estado === "nova").sort((a, b) => (b.nota || 0) - (a.nota || 0)).concat(db.vagas.filter((v) => v.estado === "depois"));
+    const todas = db.vagas.filter((v) => v.estado === "nova").sort((a, b) => (b.nota || 0) - (a.nota || 0)).concat(db.vagas.filter((v) => v.estado === "depois"));
+    const fila = todas.filter(passaFiltro);
     if (id && fila.some((v) => v.id === id)) triSel = id;
     if (!fila.some((v) => v.id === triSel)) { triSel = fila[0]?.id || null; virado = false; }
     const v = triSel && vaga(triSel);
@@ -394,12 +429,14 @@
     const repr = db.vagas.filter((x) => x.estado === "reprovada").length;
     const dep = db.vagas.filter((x) => x.estado === "depois").length;
     const pilhas = `<div class="pilhas"><div class="pilha" id="p-aprovada"><b>${aprov}</b><span class="meta">Aprovadas</span></div><div class="pilha" id="p-depois"><b>${dep}</b><span class="meta">Para depois</span></div><div class="pilha" id="p-reprovada"><b>${repr}</b><span class="meta">Reprovadas</span></div></div>`;
+    if (!v && todas.length) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem<small>${plural(todas.length, "vaga na fila", "vagas na fila")}</small></h1><p class="frase">Nenhuma vaga passa nesses filtros.</p></div></div>${barraFiltros(todas)}<div class="painel" style="max-width:640px;margin-top:16px"><button class="btn" type="button" data-limpar-filtro>Limpar filtros</button></div></section>`;
     if (!v) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem</h1><p class="frase">Nada para triar agora. Uma varredura traz vagas novas.</p></div></div><div class="painel" style="max-width:640px">${pilhas}<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><a class="btn" href="#/varreduras">${ic("atualizar")}Ir para as varreduras</a><a class="btn" href="#/candidaturas">Ver candidaturas ${ic("seta")}</a></div></div></section>`;
     const dims = Object.entries(v.dimensoes || {});
     const risco = v.alertas && v.alertas.length;
     const S = db.sigilo || {};
     return `<section class="tela entra">
-      <div class="titulo"><div><h1>Triagem<small>${plural(fila.length, "vaga na fila", "vagas na fila")}</small></h1><p class="frase">Aprove o que vale um kit. Reprovar pede um motivo, que ajusta as próximas notas.</p></div><span class="meta atalhos">Atalhos: <kbd>A</kbd> aprovar · <kbd>R</kbd> reprovar · <kbd>D</kbd> depois · <kbd>V</kbd> virar · <kbd>J</kbd>/<kbd>K</kbd> navegar</span></div>
+      <div class="titulo"><div><h1>Triagem<small>${fila.length === todas.length ? plural(fila.length, "vaga na fila", "vagas na fila") : `${fila.length} de ${todas.length} vagas, com filtro`}</small></h1><p class="frase">Aprove o que vale um kit. Reprovar pede um motivo, que ajusta as próximas notas.</p></div><span class="meta atalhos">Atalhos: <kbd>A</kbd> aprovar · <kbd>R</kbd> reprovar · <kbd>D</kbd> depois · <kbd>V</kbd> virar · <kbd>J</kbd>/<kbd>K</kbd> navegar</span></div>
+      ${barraFiltros(todas)}
       <div class="triagem">
         <div class="fila" role="listbox" aria-label="Fila de triagem">${fila.map((x) => `<button type="button" role="option" aria-selected="${x.id === v.id}" class="${x.id === v.id ? "sel" : ""}" data-id="${x.id}"><span class="empresa">${esc(x.empresa)}</span><span class="cargo">${esc(x.cargo)}</span><span class="linha">${x.exemplo ? seloExemplo(x) : x.estado === "depois" ? pilula("depois") : x.alertas?.length ? `<span class="pilula risco">Alerta de sigilo</span>` : `<span class="meta">${esc(x.contrato || "Contrato a confirmar")} · ${esc(x.local || "")}</span>`}<b>${x.nota ?? "—"}</b></span></button>`).join("")}</div>
         <div class="palco" data-tut="cartao">
@@ -449,7 +486,17 @@
     if (!L.length) return "";
     return `<div class="usa"><h3>Feitos que o kit vai destacar</h3><ul>${L.map((f) => `<li><b>${f.id}</b><span>${esc(f.texto)}</span></li>`).join("")}</ul></div>`;
   }
+  function ligarFiltros() {
+    let t;
+    app.querySelectorAll("[data-filtro]").forEach((el) => {
+      const k = el.dataset.filtro;
+      const aplicar = () => { filtro[k] = el.type === "checkbox" ? el.checked : k === "nota" ? +el.value : el.value; guardarFiltro(); triSel = null; render(true); if (k === "texto") { const n = app.querySelector('[data-filtro="texto"]'); n?.focus(); n?.setSelectionRange(n.value.length, n.value.length); } };
+      el.addEventListener(el.type === "search" ? "input" : "change", () => { if (k === "texto") { clearTimeout(t); t = setTimeout(aplicar, 250); } else aplicar(); });
+    });
+    app.querySelectorAll("[data-limpar-filtro]").forEach((b) => b.addEventListener("click", () => { filtro = { ...FILTRO_VAZIO }; guardarFiltro(); triSel = null; render(true); }));
+  }
   function ligarTriagem() {
+    ligarFiltros();
     app.querySelectorAll(".fila button").forEach((b) => b.addEventListener("click", () => { triSel = b.dataset.id; virado = false; confirmarAlerta = false; history.replaceState(null, "", `#/triagem/${triSel}`); render(true); }));
     app.querySelectorAll("[data-virar]").forEach((b) => b.addEventListener("click", virar));
     app.querySelectorAll("[data-acao]").forEach((b) => b.addEventListener("click", () => acaoTriagem(b.dataset.acao)));

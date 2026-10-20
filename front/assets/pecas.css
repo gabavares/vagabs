@@ -210,3 +210,21 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; bac
 .modo .outro .btn .svg { width: 16px; height: 16px; }
 .modo .opcoes .ficha { height: 30px; font-size: 13px; }
 @media (max-width: 1000px) { .modos { grid-template-columns: minmax(0, 1fr); } }
+
+/* triagem: filtros */
+.filtros { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; margin-bottom: 18px; }
+.filtros input[type="search"] { height: 34px; width: 220px; border: 1px solid var(--control); border-radius: var(--radius-s); padding: 0 12px; background: #fff; }
+.filtro-sel { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.filtro-sel select { height: 32px; border: 1px solid var(--control); border-radius: var(--radius-s); padding: 0 8px; background: #fff; font-size: 13px; color: var(--ink); max-width: 170px; }
+.filtro-chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+.filtro-chk input { accent-color: var(--ink); }
+
+/* barra: próximos passos */
+.barra .direita .passos-btn { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px; border-radius: 999px; color: #fff; background: #23272d; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.barra .direita .passos-btn:hover { background: #2f343b; color: #fff; }
+.passos-lista { list-style: none; display: grid; gap: 4px; }
+.passos-lista li { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--rule); }
+.passos-lista li:first-child { border-top: 0; padding-top: 0; }
+.passos-lista .meta { margin-top: 3px; line-height: 19px; }
+.passo-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--raised); font-weight: 800; font-size: 14px; }
+.passos-lista li:first-child .passo-n { background: var(--vez); color: #1b1300; }

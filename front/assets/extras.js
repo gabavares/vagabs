@@ -30,9 +30,56 @@
     api("novidades/vistas", { metodo: "POST" }).catch(() => {});
   }
 
+  /* ---------- próximos passos: o que fazer agora, na ordem do processo ----------
+     Não é vaga a vaga: cada seção é uma etapa da busca, e só aparece a que tem algo para fazer. */
+  function proximosPassos() {
+    const V = (db.vagas || []).filter((v) => !v.exemplo), P = db.pedidos || [];
+    const naFila = P.filter((p) => p.status === "fila"), kitsFila = naFila.filter((p) => p.tipo === "kit");
+    const revisar = P.filter((p) => p.status === "revisao"), erros = P.filter((p) => p.status === "erro");
+    const kits = V.filter((v) => v.estado === "kit");
+    const dias = (v) => VG.dias((v.etapas || []).filter((e) => e.tipo === "enviada").at(-1)?.data || v.captada);
+    const enviadas = V.filter((v) => v.estado === "enviada"), paradas = enviadas.filter((v) => dias(v) >= 10);
+    const emProcesso = V.filter((v) => ["processo", "proposta"].includes(v.estado));
+    const agenda = V.filter((v) => v.proxima && VG.dias(v.proxima.data) <= 0 && VG.dias(v.proxima.data) >= -7);
+    const novas = (db.vagas || []).filter((v) => v.estado === "nova");
+    const ult = db.config?.varredura?.ultima ? new Date(db.config.varredura.ultima).getTime() : 0;
+    const semConf = (db.feitos || []).filter((f) => !f.confirmado);
+    const s = [];
+    if (naFila.length) s.push({ t: "Rode a fila do Claude", d: kitsFila.length
+      ? `${VG.plural(kitsFila.length, "kit de candidatura espera", "kits de candidatura esperam")} o Claude${naFila.length > kitsFila.length ? `, mais ${VG.plural(naFila.length - kitsFila.length, "pedido", "pedidos")}` : ""}. Sem rodar a fila, as vagas aprovadas não ganham kit.`
+      : `${VG.plural(naFila.length, "pedido espera", "pedidos esperam")} o Claude. Ele faz um de cada vez quando você roda a fila.`, n: naFila.length, acao: ["Rodar fila", "fila"] });
+    if (revisar.length || erros.length) s.push({ t: "Revise o que o Claude devolveu", d: [revisar.length && `${VG.plural(revisar.length, "versão espera", "versões esperam")} você aprovar ou editar`, erros.length && `${VG.plural(erros.length, "pedido não terminou", "pedidos não terminaram")}: ponha de novo na fila`].filter(Boolean).join("; ") + ".", n: revisar.length + erros.length, acao: ["Ver pedidos", "#/pedidos"] });
+    if (kits.length) s.push({ t: "Envie as candidaturas com kit pronto", d: `Abra o kit, siga o passo a passo, copie as respostas e envie no site da vaga. Depois clique em "Marquei como enviada". ${kits.slice(0, 3).map((v) => v.empresa).join(", ")}${kits.length > 3 ? "…" : ""}.`, n: kits.length, acao: ["Abrir o primeiro kit", `#/vaga/${kits[0].id}`] });
+    if (agenda.length) s.push({ t: "Prepare-se para o que está marcado", d: agenda.map((v) => `${v.proxima.texto} · ${v.empresa}, ${VG.dm(v.proxima.data)}`).join("; ") + ". Peça ao Claude um roteiro na página da vaga.", n: agenda.length, acao: ["Abrir", `#/vaga/${agenda[0].id}`] });
+    if (enviadas.length || emProcesso.length) s.push({ t: "Atualize as respostas das empresas", d: `Quando uma empresa responder (triagem, teste, entrevista, recusa, proposta), mude a fase na página da vaga${db.config?.email?.modo === "gmail" ? " (o Gmail ajuda na varredura)" : ""}.${paradas.length ? ` ${VG.plural(paradas.length, "candidatura está", "candidaturas estão")} há 10 dias ou mais sem resposta: vale cobrar.` : ""}`, n: enviadas.length + emProcesso.length, acao: ["Ver candidaturas", "#/candidaturas"] });
+    if (novas.length) s.push({ t: "Trie as vagas novas", d: `Aprove o que vale um kit e reprove com motivo o que não serve. As aprovadas entram na fila.`, n: novas.length, acao: ["Ir para a triagem", "#/triagem"] });
+    if (Date.now() - ult > 24 * 3600 * 1000) s.push({ t: "Busque vagas novas", d: ult ? `A última varredura foi há mais de um dia.` : "Você ainda não rodou nenhuma varredura.", n: 0, acao: ["Rodar varredura", "varredura"] });
+    if (semConf.length || (db.empresas || []).filter((e) => e.prioridade !== "bloqueio").length < 5) s.push({ t: "Fortaleça a sua base", d: [semConf.length && `${VG.plural(semConf.length, "feito espera", "feitos esperam")} confirmação`, (db.empresas || []).length < 5 && "a lista de empresas-alvo está curta"].filter(Boolean).join("; ") + ". Em Base › Enriquecer, jogue o que lembrar e o Claude organiza.", n: semConf.length, acao: ["Abrir a Base", "#/base/feitos"] });
+    return s;
+  }
+  function desenharPassos() {
+    const b = document.getElementById("passos"); if (!b) return;
+    const s = proximosPassos();
+    b.innerHTML = `${ic("check")}<span>Próximos passos</span>${s.length ? `<b class="cont vez">${s.length}</b>` : ""}`;
+    b.onclick = mostrarPassos;
+  }
+  function mostrarPassos() {
+    const s = proximosPassos();
+    const el = modal({ titulo: "Próximos passos", classe: "largo",
+      corpo: s.length ? `<p class="frase" style="margin:0 0 14px">Na ordem: o de cima destrava o de baixo.</p><ol class="passos-lista">${s.map((x, i) => `<li><span class="passo-n">${i + 1}</span><div><b>${esc(x.t)}</b>${x.n ? ` <span class="cont vez">${x.n}</span>` : ""}<p class="meta">${esc(x.d)}</p></div><button class="btn ${i === 0 ? "p" : ""}" type="button" data-passo-acao="${esc(x.acao[1])}">${esc(x.acao[0])} ${ic("seta")}</button></li>`).join("")}</ol>`
+        : `<p class="frase" style="margin:0">Tudo em dia, vagabs. Quando chegarem vagas novas ou respostas das empresas, os próximos passos aparecem aqui.</p>`,
+      botoes: [{ rot: "Fechar" }] });
+    el.querySelectorAll("[data-passo-acao]").forEach((b) => b.addEventListener("click", () => {
+      const a = b.dataset.passoAcao; el.sair();
+      if (a === "fila") rodarFila(); else if (a === "varredura") rodarVarredura(); else location.hash = a;
+    }));
+  }
+  VG.mostrarPassos = mostrarPassos;
+
   /* ---------- trabalho do Claude: indicador, fila, detalhes ---------- */
   const relogio = (ms) => { const s = Math.max(0, Math.round(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
   function desenharTrabalho() {
+    desenharPassos();
     const el = document.getElementById("trabalho"); if (!el) return;
     const ex = est.execucao;
     const naFila = (db.pedidos || []).filter((p) => p.status === "fila").length;

@@ -3,13 +3,15 @@
    baixar. A atualização troca só o programa: a pasta do Vagabs (dados, documentos, CLAUDE.md)
    fica em outro lugar e nunca é tocada. */
 "use strict";
+const fs = require("fs");
+const path = require("path");
 const { app } = require("electron");
 const { vivo, emitir } = require("./estado");
-const pkg = require("../package.json");
 
 let updater = null;
-// só liga quando o repositório do GitHub estiver configurado (build.publish com owner)
-const configurado = () => [].concat(pkg.build?.publish || []).some((p) => p?.provider === "github" && p.owner);
+// liga quando o pacote traz o app-update.yml (o electron-builder gera a partir de build.publish e tira o
+// "build" do package.json empacotado; por isso não dá para conferir o package.json)
+const configurado = () => fs.existsSync(path.join(process.resourcesPath || "", "app-update.yml"));
 
 function definir(estado) { vivo.atualizacao = { ...vivo.atualizacao, ...estado }; emitir("atualizacao", { atualizacao: vivo.atualizacao }); }
 function notasTexto(n) {

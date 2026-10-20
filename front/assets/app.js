@@ -142,7 +142,7 @@
       novas: db.vagas.filter((v) => v.estado === "nova").length,
       kits: db.vagas.filter((v) => v.estado === "kit").length,
       pedidosResp: db.pedidos.filter((p) => (p.status === "respondido" && !p.lido) || p.status === "revisao" || (p.status === "erro" && !p.lido)).length,
-      naFila: db.pedidos.filter((p) => p.status === "fila").length,
+      naFila: db.pedidos.filter((p) => p.status === "fila" && !p.adiado).length,
       captadas: db.varreduras.reduce((s, x) => s + (x.lidas || 0), 0),
       bloqueadas: db.varreduras.reduce((s, x) => s + (x.bloqueadas || 0), 0),
       paraVoce: V.length,
@@ -330,9 +330,10 @@
     const tipo = p.tipo === "versao" ? `<span class="etiqueta">${ic("versao")}Versão</span>` : p.tipo === "kit" ? `<span class="etiqueta">Kit</span>` : p.tipo === "enriquecer" ? `<span class="etiqueta">Enriquecer</span>` : p.tipo === "fonte" ? `<span class="etiqueta">Fonte nova</span>` : p.tipo === "reavaliar" ? `<span class="etiqueta">Notas</span>` : "";
     const quando = String(p.respondido || p.criado || "");
     const revisar = p.tipo === "versao" && p.status === "revisao" ? blocoVersao(p.alvo) : "";
-    const ctl = controles && p.status === "fila" ? `<span class="ctl-fila"><button class="btn txt" type="button" data-mover="${p.id}" data-dir="-1" ${pos === 0 ? "disabled" : ""} aria-label="Subir na fila">${ic("sobe")}</button><button class="btn txt" type="button" data-mover="${p.id}" data-dir="1" ${pos === total - 1 ? "disabled" : ""} aria-label="Descer na fila">${ic("desce")}</button><button class="btn txt nao" type="button" data-tirar="${p.id}">Tirar da fila</button></span>`
+    const ctl = controles && p.status === "fila" ? `<span class="ctl-fila"><button class="btn txt" type="button" data-mover="${p.id}" data-dir="-1" ${pos === 0 ? "disabled" : ""} aria-label="Subir">${ic("sobe")}</button><button class="btn txt" type="button" data-mover="${p.id}" data-dir="1" ${pos === total - 1 ? "disabled" : ""} aria-label="Descer">${ic("desce")}</button><button class="btn txt" type="button" data-adiar="${p.id}">${p.adiado ? "Rodar na próxima" : "Para depois"}</button><button class="btn txt nao" type="button" data-tirar="${p.id}">Tirar da fila</button></span>`
       : controles && p.status === "erro" ? `<span class="ctl-fila"><button class="btn txt" type="button" data-repor="${p.id}">${ic("atualizar")}Pôr de novo na fila</button></span>` : "";
-    return `<div class="pedido ${p.status}"><div class="q">${esc(p.texto)}</div>${p.resposta && !revisar ? `<div class="r">${esc(p.resposta)}</div>` : ""}${revisar}<div class="meta"><span class="pilula ${st[0]}">${st[1]}</span>${tipo}${onde}<span>${esc(quando.slice(8, 10) + "/" + quando.slice(5, 7) + ", " + quando.slice(11))}</span>${ctl}</div></div>`;
+    const arrasta = controles && p.status === "fila";
+    return `<div class="pedido ${p.status}" ${arrasta ? `draggable="true" data-id="${esc(p.id)}"` : ""}><div class="q">${arrasta ? `<span class="pegador" aria-hidden="true">⋮⋮</span>` : ""}${esc(p.texto)}</div>${p.resposta && !revisar ? `<div class="r">${esc(p.resposta)}</div>` : ""}${revisar}<div class="meta"><span class="pilula ${st[0]}">${st[1]}</span>${tipo}${onde}<span>${esc(quando.slice(8, 10) + "/" + quando.slice(5, 7) + ", " + quando.slice(11))}</span>${ctl}</div></div>`;
   }
 
   /* ---------- tela: Hoje ---------- */
@@ -855,17 +856,22 @@
     db.pedidos.forEach((p) => { if (p.status === "respondido" || p.status === "erro") p.lido = true; });
     const n = (s) => db.pedidos.filter((p) => p.status === s).length;
     const ordemFila = (a, b) => (a.ordem ?? 1e9) - (b.ordem ?? 1e9) || String(a.criado).localeCompare(String(b.criado)) || String(a.id).localeCompare(String(b.id));
-    const fila = db.pedidos.filter((p) => p.status === "fila").sort(ordemFila);
+    const todaFila = db.pedidos.filter((p) => p.status === "fila").sort(ordemFila);
+    const fila = todaFila.filter((p) => !p.adiado), adiados = todaFila.filter((p) => p.adiado);
     const ordem = { processando: 0, erro: 1, revisao: 2, respondido: 3, aplicado: 4, descartado: 5 };
     const resto = db.pedidos.filter((p) => p.status !== "fila").sort((a, b) => (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9) || String(b.criado || "").localeCompare(String(a.criado || "")));
     const ex = VG.estado.execucao;
-    return `<section class="tela entra"><div class="titulo"><div><h1>Pedidos<small>${[[n("fila"), "na fila"], [n("processando"), "em andamento"], [n("revisao"), "para revisar"], [n("erro"), "sem terminar"]].filter(([q]) => q).map(([q, r]) => `${q} ${r}`).join(" · ") || "nada pendente"}</small></h1><p class="frase">Todo pedido ao Claude, de qualquer tela, entra nesta fila e espera. Ela só roda quando você clica em <b>Rodar fila</b>, e o Claude faz um pedido de cada vez.</p></div></div>
+    return `<section class="tela entra"><div class="titulo"><div><h1>Pedidos<small>${[[fila.length, "na fila"], [adiados.length, "para depois"], [n("processando"), "em andamento"], [n("revisao"), "para revisar"], [n("erro"), "sem terminar"]].filter(([q]) => q).map(([q, r]) => `${q} ${r}`).join(" · ") || "nada pendente"}</small></h1><p class="frase">Todo pedido ao Claude, de qualquer tela, entra nesta fila e espera. Ela só roda quando você clica em <b>Rodar fila</b>, e o Claude faz um pedido de cada vez.</p></div></div>
       <div class="grade"><div class="coluna">
-        <section class="painel" data-tut="fila"><div class="cab"><h2>Na fila</h2><span class="meta">na ordem em que o Claude vai fazer</span></div>${fila.map((p, i) => itemPedido(p, { controles: true, pos: i, total: fila.length })).join("") || `<div class="vazio">A fila está vazia.</div>`}</section>
+        <section class="painel" data-tut="fila"><div class="cab"><h2>Na fila</h2><span class="meta">roda na ordem, de cima para baixo · arraste para mudar</span></div>
+          <div class="zona" data-zona="agora">${fila.map((p, i) => itemPedido(p, { controles: true, pos: i, total: fila.length })).join("") || `<div class="vazio">${adiados.length ? "Nada para rodar agora. Arraste um pedido de \"Para depois\" para cá." : "A fila está vazia."}</div>`}</div></section>
+        <section class="painel"><div class="cab"><h2>Para depois</h2><span class="meta">continua na fila, mas não roda até você trazer de volta</span></div>
+          <div class="zona depois" data-zona="depois">${adiados.map((p, i) => itemPedido(p, { controles: true, pos: i, total: adiados.length })).join("") || `<div class="vazio">Arraste para cá o que deve esperar (ex.: os kits, enquanto você roda outras coisas).</div>`}</div>
+          ${adiados.length ? `<button class="btn txt" type="button" id="trazer-todos" style="margin-top:10px">${ic("sobe")}Trazer todos para a fila</button>` : ""}</section>
         <section class="painel"><div class="cab"><h2>Feitos e em andamento</h2></div>${resto.map((p) => itemPedido(p, { controles: true })).join("") || `<div class="vazio">Nenhum pedido ainda.</div>`}</section>
       </div>
       <div class="coluna">
-        <section class="painel"><div class="cab"><h2>Rodar a fila</h2>${ex ? `<span class="pilula agu">Claude trabalhando</span>` : fila.length ? `<span class="pilula nova">${fila.length} esperando</span>` : ""}</div>
+        <section class="painel"><div class="cab"><h2>Rodar a fila</h2>${ex ? `<span class="pilula agu">Claude trabalhando</span>` : fila.length ? `<span class="pilula nova">${fila.length} esperando</span>` : ""}</div>${adiados.length ? `<p class="meta" style="margin-bottom:6px">${plural(adiados.length, "pedido fica", "pedidos ficam")} para depois e não ${adiados.length === 1 ? "roda" : "rodam"} agora.</p>` : ""}
           ${ex ? `<p class="meta">${esc(ex.tipo === "fila" ? `Pedido ${ex.indice || 1} de ${ex.total || 1}` : ex.rotulo)}</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">${ex.tipo === "fila" ? `<button class="btn" type="button" id="parar-fila">${ic("parar")}Parar depois deste</button>` : ""}<button class="btn" type="button" data-ver-trabalho>Ver o que ele está fazendo</button></div>`
             : `<p class="meta">Cada pedido gasta um pouco do seu plano Claude. Kits gastam mais (o Claude pensa mais).</p><button class="btn p g" type="button" id="rodar-fila" style="margin-top:12px;width:100%" ${fila.length ? "" : "disabled"}>${ic("play")}Rodar fila${fila.length ? ` (${fila.length})` : ""}</button>`}
           ${VG.estado.limite ? `<p class="meta" style="margin-top:12px;color:var(--vez-t)">${ic("alerta")} O plano bateu no limite de uso${VG.estado.limite.ate ? `. Volta por volta de ${new Date(VG.estado.limite.ate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : ""}.</p>` : ""}</section>
@@ -875,17 +881,49 @@
   function ligarFila() {
     document.getElementById("rodar-fila")?.addEventListener("click", () => VG.rodarFila());
     document.getElementById("parar-fila")?.addEventListener("click", async () => { await api("fila/parar", { metodo: "POST" }); toast("A fila para depois do pedido atual"); });
+    // a ordem é a da tela: primeiro "na fila", depois "para depois"
+    const gravarOrdem = (msg = "") => {
+      const ids = (z) => [...app.querySelectorAll(`.zona[data-zona="${z}"] .pedido[data-id]`)].map((x) => x.dataset.id);
+      const agora = ids("agora"), depois = ids("depois");
+      [...agora, ...depois].forEach((id, k) => { const p = db.pedidos.find((x) => x.id === id); if (p) { p.ordem = k; p.adiado = depois.includes(id); } });
+      salvar("pedidos", msg); render(true);
+    };
     app.querySelectorAll("[data-mover]").forEach((b) => b.addEventListener("click", () => {
-      const ordemFila = (a, c) => (a.ordem ?? 1e9) - (c.ordem ?? 1e9) || String(a.criado).localeCompare(String(c.criado)) || String(a.id).localeCompare(String(c.id));
-      const fila = db.pedidos.filter((p) => p.status === "fila").sort(ordemFila);
-      const i = fila.findIndex((p) => p.id === b.dataset.mover), j = i + +b.dataset.dir;
-      if (j < 0 || j >= fila.length) return;
-      [fila[i], fila[j]] = [fila[j], fila[i]];
-      fila.forEach((p, k) => { p.ordem = k; });
-      salvar("pedidos", ""); render(true);
+      const el = b.closest(".pedido"), irmao = +b.dataset.dir < 0 ? el.previousElementSibling : el.nextElementSibling;
+      if (!irmao?.dataset.id) return;
+      if (+b.dataset.dir < 0) irmao.before(el); else irmao.after(el);
+      gravarOrdem();
     }));
+    app.querySelectorAll("[data-adiar]").forEach((b) => b.addEventListener("click", () => {
+      const el = b.closest(".pedido"), p = db.pedidos.find((x) => x.id === b.dataset.adiar);
+      const zona = app.querySelector(`.zona[data-zona="${p.adiado ? "agora" : "depois"}"]`);
+      zona.querySelector(".vazio")?.remove(); zona.appendChild(el);
+      gravarOrdem(p.adiado ? "Volta a rodar na próxima vez" : "Fica para depois");
+    }));
+    document.getElementById("trazer-todos")?.addEventListener("click", () => {
+      const agora = app.querySelector('.zona[data-zona="agora"]'); agora.querySelector(".vazio")?.remove();
+      app.querySelectorAll('.zona[data-zona="depois"] .pedido[data-id]').forEach((el) => agora.appendChild(el));
+      gravarOrdem("Todos voltam a rodar");
+    });
+    // arrastar com o mouse entre as duas zonas e dentro delas
+    let arrastando = null;
+    app.querySelectorAll('.pedido[draggable="true"]').forEach((el) => {
+      el.addEventListener("dragstart", (e) => { arrastando = el; el.classList.add("arrastando"); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", el.dataset.id); });
+      el.addEventListener("dragend", () => { el.classList.remove("arrastando"); app.querySelectorAll(".zona").forEach((z) => z.classList.remove("sobre")); if (arrastando) { arrastando = null; gravarOrdem(); } });
+    });
+    app.querySelectorAll(".zona").forEach((z) => {
+      z.addEventListener("dragover", (e) => {
+        if (!arrastando) return;
+        e.preventDefault(); z.classList.add("sobre");
+        const antesDe = [...z.querySelectorAll(".pedido[data-id]:not(.arrastando)")].find((x) => e.clientY < x.getBoundingClientRect().top + x.offsetHeight / 2);
+        z.querySelector(".vazio")?.remove();
+        if (antesDe) z.insertBefore(arrastando, antesDe); else z.appendChild(arrastando);
+      });
+      z.addEventListener("dragleave", (e) => { if (!z.contains(e.relatedTarget)) z.classList.remove("sobre"); });
+      z.addEventListener("drop", (e) => e.preventDefault());
+    });
     app.querySelectorAll("[data-tirar]").forEach((b) => b.addEventListener("click", () => { const p = db.pedidos.find((x) => x.id === b.dataset.tirar); p.status = "descartado"; salvar("pedidos", "Tirado da fila"); render(true); }));
-    app.querySelectorAll("[data-repor]").forEach((b) => b.addEventListener("click", () => { const p = db.pedidos.find((x) => x.id === b.dataset.repor); p.status = "fila"; p.resposta = null; salvar("pedidos", MSG_FILA); render(true); }));
+    app.querySelectorAll("[data-repor]").forEach((b) => b.addEventListener("click", () => { const p = db.pedidos.find((x) => x.id === b.dataset.repor); p.status = "fila"; p.resposta = null; delete p.adiado; salvar("pedidos", MSG_FILA); render(true); }));
   }
 
   /* ---------- tela: Varreduras ---------- */

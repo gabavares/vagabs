@@ -90,13 +90,14 @@ const explicar = (r) => {
 
 /* ---------- fila de pedidos ---------- */
 const ordemFila = (a, b) => (a.ordem ?? 1e9) - (b.ordem ?? 1e9) || String(a.criado).localeCompare(String(b.criado)) || String(a.id).localeCompare(String(b.id));
-const naFila = () => db.ler("pedidos").filter((p) => p.status === "fila").sort(ordemFila);
+// "para depois" (adiado) continua na fila, mas não roda até a pessoa trazer de volta
+const naFila = () => db.ler("pedidos").filter((p) => p.status === "fila" && !p.adiado).sort(ordemFila);
 function promptPedido(p) {
   return `Processe o pedido ${p.id} do Vagabs (tipo "${p.tipo || "pedido"}"), seguindo a seção "Pedidos" de .vagabs/instrucoes.md. Agora são ${agoraTxt()}. Leia o pedido com a ferramenta ler (colecao pedidos, id ${p.id}). Termine com o status certo (respondido ou revisao) e uma resposta curta.`;
 }
 async function rodarFila() {
   if (ocupado()) return { ok: false, motivo: "O Claude já está trabalhando." };
-  if (!naFila().length) return { ok: false, motivo: "A fila está vazia." };
+  if (!naFila().length) return { ok: false, motivo: db.ler("pedidos").some((p) => p.status === "fila") ? "Só há pedidos para depois. Arraste algum para a fila." : "A fila está vazia." };
   pararDepois = false;
   let feitos = 0, falhas = 0, total = naFila().length;
   comecar("fila", "Rodando a fila", { indice: 0, total });

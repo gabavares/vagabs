@@ -34,7 +34,7 @@
      Não é vaga a vaga: cada seção é uma etapa da busca, e só aparece a que tem algo para fazer. */
   function proximosPassos() {
     const V = (db.vagas || []).filter((v) => !v.exemplo), P = db.pedidos || [];
-    const naFila = P.filter((p) => p.status === "fila"), kitsFila = naFila.filter((p) => p.tipo === "kit");
+    const naFila = P.filter((p) => p.status === "fila" && !p.adiado), kitsFila = naFila.filter((p) => p.tipo === "kit");
     const revisar = P.filter((p) => p.status === "revisao"), erros = P.filter((p) => p.status === "erro");
     const kits = V.filter((v) => v.estado === "kit");
     const dias = (v) => VG.dias((v.etapas || []).filter((e) => e.tipo === "enviada").at(-1)?.data || v.captada);
@@ -82,7 +82,7 @@
     desenharPassos();
     const el = document.getElementById("trabalho"); if (!el) return;
     const ex = est.execucao;
-    const naFila = (db.pedidos || []).filter((p) => p.status === "fila").length;
+    const naFila = (db.pedidos || []).filter((p) => p.status === "fila" && !p.adiado).length;
     if (ex) {
       const ROT = { fila: `Pedido ${ex.indice || 1} de ${ex.total || 1}`, varredura: "Varredura", preparar: "Preparando" };
       el.innerHTML = `<button type="button" class="trab on" data-ver-trab><i class="pulso"></i><span>Claude trabalhando · ${esc(ROT[ex.tipo] || ex.rotulo)} · <b data-relogio>${relogio(Date.now() - ex.inicio)}</b></span></button>`;

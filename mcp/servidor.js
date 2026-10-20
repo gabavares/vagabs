@@ -8,6 +8,7 @@ const path = require("path");
 const readline = require("readline");
 const { criar, COLECOES, OBJETOS } = require("../nucleo/dados.js");
 const coletor = require("../nucleo/coletor.js");
+const fontesExtras = require("../nucleo/fontes.js");
 
 const PASTA = process.env.VAGABS_PASTA || process.cwd();
 const db = criar(PASTA);
@@ -54,6 +55,21 @@ const FERRAMENTAS = [
       const dir = path.join(PASTA, "documentos"); if (!fs.existsSync(dir)) return [];
       // inclui as subpastas (o material do Enriquecer fica em documentos/enriquecer)
       return fs.readdirSync(dir, { withFileTypes: true, recursive: true }).filter((f) => f.isFile()).map((f) => { const c = path.join(f.parentPath || f.path || dir, f.name); return { nome: path.relative(dir, c), caminho: c, kb: Math.round(fs.statSync(c).size / 1024) }; });
+    } },
+  { name: "baixar_pagina", description: "Baixa uma página ou endpoint como o app baixa (HTML ou JSON cru, sem conversão), para entender a estrutura de um site de vagas. Devolve status, tipo e até 60 mil caracteres.",
+    inputSchema: { type: "object", properties: { url: { type: "string" }, metodo: { type: "string", enum: ["GET", "POST"] }, corpo: { type: "object" } }, required: ["url"] },
+    fazer: async ({ url, metodo, corpo }) => { const r = await fontesExtras.baixar(url, { metodo: metodo || "GET", corpo }); return { status: r.status, tipo: r.tipo, tamanho: r.texto.length, texto: r.texto.slice(0, 60000) }; } },
+  { name: "testar_fonte", description: "Roda uma receita de fonte de vagas (formato em .vagabs/instrucoes.md, seção 'Fonte nova') com um termo e devolve quantas vagas achou e as 5 primeiras. Use para conferir a receita antes de salvar.",
+    inputSchema: { type: "object", properties: { receita: { type: "object" }, termo: { type: "string" }, local: { type: "string" } }, required: ["receita", "termo"] },
+    fazer: async ({ receita, termo, local }) => { const l = await fontesExtras.rodarReceita({ id: "teste", nome: "teste", receita }, termo, local || ""); return { total: l.length, amostra: l.slice(0, 5).map(({ descricao, ...x }) => ({ ...x, descricao: (descricao || "").slice(0, 200) })) }; } },
+  { name: "salvar_fonte", description: "Grava o resultado da montagem de uma fonte acrescentada pela pessoa (config.varredura.fontes_extras): status 'pronta' com a receita testada, 'claude' quando só dá para buscar lá pelo Claude, ou 'erro'. Explique em 'nota' para a pessoa.",
+    inputSchema: { type: "object", properties: { id: { type: "string" }, status: { type: "string", enum: ["pronta", "claude", "erro"] }, receita: { type: "object" }, nota: { type: "string" } }, required: ["id", "status", "nota"] },
+    fazer: ({ id, status, receita, nota }) => {
+      const cfg = db.ler("config"); const v = cfg.varredura || {}; const lista = v.fontes_extras || [];
+      const f = lista.find((x) => x.id === id); if (!f) throw new Error(`fonte ${id} não existe`);
+      Object.assign(f, { status, nota, ...(receita ? { receita } : {}), montada: new Date().toISOString() });
+      db.objeto("config", { varredura: { ...v, fontes_extras: lista } });
+      return f;
     } },
   { name: "buscar_vagas", description: "Busca avulsa de vagas na Gupy e no LinkedIn público, sem gravar nada. Para pedidos do tipo 'procura vagas de X'.",
     inputSchema: { type: "object", properties: { termo: { type: "string" }, local: { type: "string", description: "ex.: São Paulo, Brazil" } }, required: ["termo"] },

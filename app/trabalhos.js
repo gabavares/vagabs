@@ -146,14 +146,21 @@ async function rodarVarredura() {
     passo("Coletando vagas nas fontes");
     const cap = await coletor.coletar(db, { progresso: passo, log: () => {} });
     passo(`${cap.lidas} vagas novas lidas, ${cap.candidatas.length} para o Claude avaliar`);
+    // guarda como foi cada fonte acrescentada (a tela mostra)
+    if (cap.fontes_extras && Object.keys(cap.fontes_extras).length) {
+      const c2 = db.ler("config"), v2 = c2.varredura || {};
+      (v2.fontes_extras || []).forEach((f) => { const r = cap.fontes_extras[f.id]; if (r) f.ultima = { quando: agoraUtc(), vagas: r.vagas, erro: r.erro }; });
+      db.objeto("config", { varredura: v2 });
+    }
+    const pelaClaude = (cfg.varredura?.fontes_extras || []).filter((f) => f.ativa !== false && f.status === "claude");
     const email = cfg.email?.modo === "gmail";
-    if (!cap.candidatas.length && !email) {
+    if (!cap.candidatas.length && !email && !pelaClaude.length) {
       // nada para avaliar: registra sem gastar o plano
       db.adicionar("varreduras", { data: agoraTxt(), fontes: cap.fontes, lidas: cap.lidas, bloqueadas: cap.bloqueadas, novas: 0, abaixo_do_corte: Math.max(0, cap.lidas - cap.bloqueadas) });
       res = { ok: true, novas: 0, semClaude: true };
     } else {
       const antes = db.ler("vagas").length;
-      const r = await rodarClaude(`Faça a varredura de ${hoje} seguindo a seção "Varredura" de .vagabs/instrucoes.md. A coleta está na ferramenta captura (data ${hoje}). Agora são ${agoraTxt()}.${email ? " O e-mail está ligado (Gmail): leia só os retornos de processos." : " O e-mail está desligado: pule o passo 5."}`, "medium");
+      const r = await rodarClaude(`Faça a varredura de ${hoje} seguindo a seção "Varredura" de .vagabs/instrucoes.md. A coleta está na ferramenta captura (data ${hoje}). Agora são ${agoraTxt()}.${email ? " O e-mail está ligado (Gmail): leia só os retornos de processos." : " O e-mail está desligado: pule o passo 6."}${pelaClaude.length ? ` Procure também nestas fontes, pelo Claude: ${pelaClaude.map((f) => `${f.nome} (${f.site})`).join(", ")}.` : " Não há fontes só pelo Claude."}`, "medium");
       const registrou = db.ler("varreduras").some((v) => String(v.data).startsWith(hoje));
       res = { ok: r.ok && registrou, novas: db.ler("vagas").length - antes, erro: r.ok ? null : explicar(r) };
     }
@@ -162,6 +169,7 @@ async function rodarVarredura() {
       try {
         const b = require("./backup"), e = b.estado(db);
         if (e.auto && e.destino) { passo("Fazendo o backup"); const r = b.fazer(db); res.backup = r.ok; }
+        if (e.autoClaude) { const r = await backupClaude({ junto: true }); res.backupDrive = r.ok; }
       } catch {}
     }
     const ultima = res.ok ? agoraUtc() : cfg.varredura?.ultima || null;
@@ -234,12 +242,64 @@ async function checarFerramentas() {
   const servidores = r.init?.mcp_servers || [];
   const LER = /(search|get_|list_|read)/i, ESCREVER = /(send|draft|trash|delete|label|spam|forward|reply|update|create|modify|move|archive)/i;
   const gmail = tools.filter((t) => /gmail/i.test(t) && LER.test(t.split("__").pop()) && !ESCREVER.test(t.split("__").pop()));
+  // Google Drive: só procurar, ler e criar arquivo (nada de apagar, compartilhar ou mexer em permissões)
+  const DRIVE_OK = /^(search_files|list_recent_files|get_file_metadata|read_file_content|download_file_content|create_file)$/;
+  const drive = tools.filter((t) => /google_?drive/i.test(t) && DRIVE_OK.test(t.split("__").pop()));
   return {
     ok: !!r.init, erro: r.init ? null : (r.erro || r.resultado || "O Claude Code não respondeu.").slice(-600),
     vagabs: servidores.find((s) => s.name === "vagabs")?.status || "ausente",
     gmail: { conectado: servidores.some((s) => /gmail/i.test(s.name) && s.status === "connected"), ferramentas: gmail },
+    drive: { conectado: servidores.some((s) => /drive/i.test(s.name) && s.status === "connected"), ferramentas: drive },
     modelo: r.init?.model || null, versao: r.init?.claude_code_version || null,
   };
+}
+
+/* ---------- backup pelo conector do Google Drive (o Claude sobe o arquivo) ---------- */
+const DRIVE_PADRAO = ["search_files", "list_recent_files", "get_file_metadata", "read_file_content", "download_file_content", "create_file"].map((n) => `mcp__claude_ai_Google_Drive__${n}`);
+const ferramentasDrive = () => { const f = db.ler("config").backup?.ferramentasDrive; return f?.length ? f : DRIVE_PADRAO; };
+async function backupClaude({ junto = false } = {}) {
+  if (ocupado() && !junto) return { ok: false, motivo: "O Claude já está trabalhando." };
+  const backup = require("./backup");
+  const g = backup.gravarPacote(db);
+  const nome = `vagabs-backup-${agoraTxt().replace(/[: ]/g, "-")}.json`;
+  if (!junto) comecar("backup", "Backup no Google Drive");
+  passo(`Backup essencial pronto (${Math.round(g.caracteres / 1024)} KB). O Claude sobe para o Drive`);
+  let res = { ok: false };
+  try {
+    const r = await claude.executar({
+      pasta: db.pasta, modelo: modelo(), esforco: "medium", mcpConfig: path.join(db.pasta, ".vagabs", "mcp.json"),
+      ferramentas: ["Read(./backup/**)", ...ferramentasDrive()], aoPasso: (p) => passo(legivel(p)),
+      sistema: "Você está fazendo o backup do app Vagabs no Google Drive da pessoa. Não mude nada fora disso.",
+      prompt: `Faça o backup do Vagabs no Google Drive pelo conector:
+1. Leia o arquivo backup/vagabs-backup.json inteiro com a ferramenta Read (são ${g.linhas} linhas; leia em partes com offset e limit até o fim).
+2. Crie no Google Drive um arquivo chamado "${nome}" com exatamente esse conteúdo, sem mudar nada (mimeType application/json). Se der, dentro de uma pasta "Vagabs (backup)"; se não der, na raiz.
+3. Responda só com uma linha: OK e o nome do arquivo criado. Se não conseguir, responda ERRO e o motivo.`,
+    });
+    res = { ok: r.ok && /\bOK\b/.test(r.resultado || ""), erro: r.ok ? (/\bOK\b/.test(r.resultado || "") ? null : (r.resultado || "").slice(0, 300)) : explicar(r) };
+    if (res.ok) db.objeto("config", { backup: { ...db.ler("config").backup, ultimoClaude: { quando: agoraUtc(), nome, kb: Math.round(g.caracteres / 1024) } } });
+  } catch (e) { res = { ok: false, erro: e.message }; }
+  finally { if (!junto) terminar(res); }
+  return res;
+}
+async function restaurarClaude() {
+  if (ocupado()) return { ok: false, motivo: "O Claude já está trabalhando." };
+  const backup = require("./backup");
+  comecar("backup", "Restaurar do Google Drive");
+  let res = { ok: false };
+  const arq = path.join(db.pasta, "backup", "restaurar.json");
+  try {
+    fs.mkdirSync(path.dirname(arq), { recursive: true }); fs.rmSync(arq, { force: true });
+    const r = await claude.executar({
+      pasta: db.pasta, modelo: modelo(), esforco: "medium", mcpConfig: path.join(db.pasta, ".vagabs", "mcp.json"),
+      ferramentas: ["Write(./backup/**)", ...ferramentasDrive()], aoPasso: (p) => passo(legivel(p)),
+      sistema: "Você está restaurando um backup do app Vagabs a partir do Google Drive da pessoa. Não mude nada fora disso.",
+      prompt: `Ache no Google Drive o arquivo mais novo cujo nome começa com "vagabs-backup-" e termina em ".json". Baixe o conteúdo e grave, exatamente igual, no arquivo backup/restaurar.json (ferramenta Write). Responda OK e o nome do arquivo, ou ERRO e o motivo.`,
+    });
+    if (!fs.existsSync(arq)) res = { ok: false, erro: r.ok ? (r.resultado || "Não achei um backup no Drive.").slice(0, 300) : explicar(r) };
+    else { passo("Trazendo os dados de volta"); res = backup.restaurarPacote(db, arq); if (!res.ok) res.erro = res.motivo; }
+  } catch (e) { res = { ok: false, erro: e.message }; }
+  finally { terminar(res); }
+  return res;
 }
 
 /* ---------- chat com o Claude (aba Claude) ----------
@@ -296,4 +356,4 @@ function novaConversa() {
   return { ok: true };
 }
 
-module.exports = { ehTeste, ligar, ocupado, rodarFila, pararFila, cancelar, rodarVarredura, preparar, checarFerramentas, garantirExemplo, ordemFila, conversa, conversar, novaConversa };
+module.exports = { backupClaude, restaurarClaude, ehTeste, ligar, ocupado, rodarFila, pararFila, cancelar, rodarVarredura, preparar, checarFerramentas, garantirExemplo, ordemFila, conversa, conversar, novaConversa };

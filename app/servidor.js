@@ -15,6 +15,7 @@ const consoleP = require("./console");
 const trab = require("./trabalhos");
 const atual = require("./atualizacao");
 const backup = require("./backup");
+const { reconferir } = require("../nucleo/reconferir");
 const { criar, COLECOES } = require("../nucleo/dados");
 
 const RAIZ = path.join(__dirname, "..");
@@ -109,6 +110,7 @@ const ROTAS = {
   "POST /api/claude/ferramentas": async () => {
     const r = await trab.checarFerramentas();
     if (db && r.gmail.ferramentas.length) db.objeto("config", { email: { ...db.ler("config").email, ferramentas: r.gmail.ferramentas } });
+    if (db && r.drive?.ferramentas.length) db.objeto("config", { backup: { ...db.ler("config").backup, ferramentasDrive: r.drive.ferramentas } });
     return r;
   },
   "POST /api/console/iniciar": () => consoleP.iniciar(db?.pasta),
@@ -148,7 +150,15 @@ const ROTAS = {
     else trab.garantirExemplo();
     return { ok: true };
   },
+  "POST /api/triagem/reconferir": () => {
+    if (!db) throw new Error("sem pasta");
+    if (trab.ocupado()) return { ok: false, motivo: "O Claude está trabalhando; reconfiro quando ele terminar." };
+    return { ok: true, ...reconferir(db) };
+  },
   "GET /api/backup": () => backup.estado(db),
+  "POST /api/backup/claude": () => { if (!db) throw new Error("sem pasta"); if (trab.ocupado()) return { ok: false, motivo: "O Claude já está trabalhando." }; trab.backupClaude(); return { ok: true }; },
+  "POST /api/backup/claude/restaurar": () => { if (!db) throw new Error("sem pasta"); if (trab.ocupado()) return { ok: false, motivo: "O Claude já está trabalhando." }; trab.restaurarClaude(); return { ok: true }; },
+  "POST /api/backup/claude/auto": async (req) => { const { auto } = await lerJson(req); db.objeto("config", { backup: { ...db.ler("config").backup, autoClaude: !!auto } }); return backup.estado(db); },
   "POST /api/backup/fazer": () => { if (!db) throw new Error("sem pasta"); return backup.fazer(db); },
   "POST /api/backup/pasta": async () => {
     const r = await dialog.showOpenDialog(BrowserWindow.getAllWindows()[0], { title: "Onde guardar os backups do Vagabs", defaultPath: backup.estado(db).destino || undefined, properties: ["openDirectory", "createDirectory"] });

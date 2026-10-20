@@ -79,9 +79,44 @@ function restaurar(db, pastaBackup) {
   return { ok: true, colecoes: n, de: info.quando, seguranca };
 }
 
-function estado(db) {
-  const b = db?.ler("config").backup || {};
-  return { drive: acharDrive(), pasta: b.pasta || null, destino: db ? destino(db) : acharDrive(), auto: b.auto !== false, ultimo: b.ultimo || null };
+/* ---------- backup essencial (para o conector do Google Drive, pelo Claude) ----------
+   Pelo conector, o Claude tem de escrever o conteúdo inteiro no Drive, e isso gasta o plano. Então vai
+   só o essencial: perfil, preferências, sigilo, configuração, feitos, empresas, varreduras e as vagas
+   (as encerradas e reprovadas, resumidas). Ficam de fora o histórico de pedidos, as conversas e os
+   arquivos de documentos. */
+const ATIVAS = ["nova", "depois", "aprovada", "kit", "enviada", "processo", "proposta"];
+function pacoteEssencial(db) {
+  const vagas = db.ler("vagas").filter((v) => !v.exemplo).map((v) => ATIVAS.includes(v.estado) ? v
+    : { id: v.id, id_fonte: v.id_fonte, fonte: v.fonte, url: v.url, empresa: v.empresa, cargo: v.cargo, local: v.local, estado: v.estado, nota: v.nota, captada: v.captada, desfecho: v.desfecho, motivos_reprovacao: v.motivos_reprovacao, etapas: (v.etapas || []).slice(-2) });
+  const config = { ...db.ler("config") }; delete config.backup;
+  return { app: "Vagabs", tipo: "backup-essencial", versao: VERSAO, quando: new Date().toISOString(),
+    colecoes: { perfil: db.ler("perfil"), preferencias: db.ler("preferencias"), sigilo: db.ler("sigilo"), config, feitos: db.ler("feitos"), empresas: db.ler("empresas"), varreduras: db.ler("varreduras"), vagas } };
+}
+// grava em <pasta>/backup/ com linhas curtas (a ferramenta de leitura do Claude corta linhas longas)
+function gravarPacote(db) {
+  const dir = path.join(db.pasta, "backup"); fs.mkdirSync(dir, { recursive: true });
+  const texto = JSON.stringify(pacoteEssencial(db), null, 1);
+  const arq = path.join(dir, "vagabs-backup.json");
+  fs.writeFileSync(arq, texto, "utf8");
+  return { arq, caracteres: texto.length, linhas: texto.split("\n").length };
+}
+const estimativa = (db) => { const n = JSON.stringify(pacoteEssencial(db), null, 1).length; return { kb: Math.round(n / 1024), tokens: Math.round(n / 3.2) }; };
+// traz de volta um backup essencial baixado do Drive (guarda antes o que está aqui)
+function restaurarPacote(db, arq) {
+  let b; try { b = JSON.parse(fs.readFileSync(arq, "utf8")); } catch { return { ok: false, motivo: "O arquivo baixado do Drive não é um backup válido." }; }
+  if (b?.app !== "Vagabs" || !b.colecoes) return { ok: false, motivo: "O arquivo baixado do Drive não é um backup do Vagabs." };
+  const seguranca = path.join(db.pasta, "_antes-de-restaurar", carimbo());
+  copiar(db.DADOS, path.join(seguranca, "dados"));
+  let n = 0;
+  for (const [c, dados] of Object.entries(b.colecoes)) { try { db.substituir(c, c === "config" ? { ...dados, backup: db.ler("config").backup } : dados); n++; } catch {} }
+  return { ok: true, colecoes: n, de: b.quando, seguranca };
 }
 
-module.exports = { fazer, restaurar, estado, acharDrive, RAIZ_BACKUP };
+function estado(db) {
+  const b = db?.ler("config").backup || {};
+  return { drive: acharDrive(), pasta: b.pasta || null, destino: db ? destino(db) : acharDrive(), auto: b.auto !== false, ultimo: b.ultimo || null,
+    // pelo conector do Drive na conta Claude
+    autoClaude: !!b.autoClaude, ultimoClaude: b.ultimoClaude || null, ferramentasDrive: b.ferramentasDrive || [], estimativa: db ? estimativa(db) : null };
+}
+
+module.exports = { fazer, restaurar, estado, acharDrive, RAIZ_BACKUP, gravarPacote, restaurarPacote };

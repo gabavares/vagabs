@@ -6,6 +6,7 @@
 "use strict";
 const fs = require("fs");
 const path = require("path");
+const { rodarReceita } = require("./fontes");
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
 const CONTRATO = { vacancy_type_effective: "CLT", vacancy_legal_entity: "PJ", vacancy_type_internship: "Estágio", vacancy_type_temporary: "Temporário", vacancy_type_associate: "Associado", vacancy_type_talent_pool: "Banco de talentos", vacancy_type_apprentice: "Aprendiz", vacancy_type_freelancer: "Freela" };
@@ -202,6 +203,9 @@ async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
   let vistas = new Set(); try { vistas = new Set(JSON.parse(fs.readFileSync(VISTAS, "utf8"))); } catch {}
   db.ler("vagas").forEach((v) => v.id_fonte && vistas.add(v.id_fonte));
 
+  // fontes acrescentadas pela pessoa: com receita pronta, a coleta roda sozinha
+  const extras = (cfg.fontes_extras || []).filter((f) => f.ativa !== false && f.status === "pronta" && f.receita);
+  const resultadoExtras = Object.fromEntries(extras.map((f) => [f.id, { vagas: 0, erro: null }]));
   const brutas = new Map(), fontes = new Set();
   const somar = (lista, rotulo) => lista.forEach((i) => { if (!brutas.has(i.id_fonte)) brutas.set(i.id_fonte, i); fontes.add(rotulo || i.fonte); });
   let n = 0;
@@ -209,6 +213,11 @@ async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
     progresso(`Buscando "${termo}" (${++n} de ${termos.length})`);
     if (fontesOn.gupy !== false) { somar(await gupy(termo, log)); await pausa(1500); }
     if (fontesOn.linkedin !== false) for (const [onde, wt] of buscasLI) { somar(await linkedin(termo, onde, log, wt)); await pausa(6000); }
+    if (n <= 5) for (const f of extras) {
+      try { const l = await rodarReceita(f, termo, String(cfg.local || "").split(",")[0]); somar(l); resultadoExtras[f.id].vagas += l.length; }
+      catch (e) { resultadoExtras[f.id].erro = e.message; log(`fonte ${f.nome}: ${e.message}`); }
+      await pausa(1500);
+    }
   }
   if (fontesOn.empresas !== false) { progresso("Lendo os sites das empresas-alvo"); somar(await empresasAlvo(db.ler("empresas"), termos, log), "Sites das empresas"); }
 
@@ -245,7 +254,7 @@ async function coletar(db, { log = () => {}, progresso = () => {} } = {}) {
   }
   candidatas.forEach((c) => delete c._detalhe);
   lidas -= jaVistas; // "lidas" = vagas que ainda não tinham sido vistas
-  const saida = { data: hoje, fontes: [...fontes].sort(), termos, lidas: Math.max(0, lidas), ja_vistas: jaVistas, bloqueadas, fora_do_filtro: foraFiltro, candidatas };
+  const saida = { data: hoje, fontes: [...fontes].sort(), termos, lidas: Math.max(0, lidas), ja_vistas: jaVistas, bloqueadas, fora_do_filtro: foraFiltro, candidatas, fontes_extras: resultadoExtras };
   fs.writeFileSync(arqDia, JSON.stringify(saida, null, 2), "utf8");
   candidatas.forEach((c) => vistas.add(c.id_fonte));
   fs.writeFileSync(VISTAS, JSON.stringify([...vistas].sort()), "utf8");

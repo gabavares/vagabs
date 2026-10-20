@@ -331,16 +331,7 @@
           ${a.estado === "disponivel" && a.notas ? `<div class="notas-txt">${esc(a.notas).replace(/\n/g, "<br>")}</div>` : ""}
           <div class="botoes">${a.estado === "disponivel" ? `<button class="btn p" type="button" data-atu="baixar">Baixar a atualização</button>` : a.estado === "pronta" ? `<button class="btn ok" type="button" data-atu="instalar">Reiniciar e atualizar</button>` : `<button class="btn" type="button" data-atu="procurar" ${["dev", "sem-repositorio", "procurando", "baixando"].includes(a.estado) ? "disabled" : ""}>${ic("atualizar")}Procurar atualizações</button>`}</div>
           <p class="meta" style="margin-top:10px">A atualização troca só o programa. Seus dados, documentos e configurações ficam onde estão.</p></section>
-        <section class="painel" id="painel-backup"><div class="cab"><h2>Backup</h2></div>${(() => {
-          const b = est.backup;
-          if (!b) return `<p class="meta">Conferindo…</p>`;
-          const ult = b.ultimo ? `Último: ${new Date(b.ultimo.quando).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}, ${VG.plural(b.ultimo.arquivos, "arquivo", "arquivos")}.` : "Nenhum backup ainda.";
-          const onde = b.destino ? `<p class="caminho-txt"><code>${esc(b.destino)}</code></p><p class="meta">${b.drive && b.destino === b.drive ? "É a pasta do Google Drive deste computador: o que vai para lá sobe para a nuvem sozinho." : "Pasta escolhida por você."}</p>`
-            : `<p class="aviso-linha">${ic("alerta")}Não achei o Google Drive neste computador.</p><p class="meta" style="margin-top:6px">Instale o <button class="btn txt" type="button" data-abrir-link="https://www.google.com/drive/download/">Google Drive para computador</button> e entre com a sua conta: ele cria a pasta "Meu Drive", e o Vagabs passa a usar sozinho. Ou escolha outra pasta.</p>`;
-          return `${onde}<p class="meta" style="margin-top:8px">${ult} Vão os seus dados, as vagas, as configurações, os documentos e as conversas. Ficam os 10 mais novos.</p>
-            <label class="interruptor"><input type="checkbox" id="backup-auto" ${b.auto ? "checked" : ""}><span>Fazer backup depois de cada varredura</span></label>
-            <div class="botoes"><button class="btn p" type="button" id="backup-fazer" ${b.destino ? "" : "disabled"}>${ic("check")}Fazer backup agora</button><button class="btn" type="button" id="backup-pasta">${ic("pasta")}Escolher outra pasta</button><button class="btn txt" type="button" id="backup-restaurar">${ic("atualizar")}Restaurar de um backup</button></div>`;
-        })()}</section>
+        <section class="painel"><div class="cab"><h2>Backup</h2></div><p class="meta">${est.backup?.ultimo || est.backup?.ultimoClaude ? `Último backup: ${new Date((est.backup.ultimo || est.backup.ultimoClaude).quando).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : "Guarde uma cópia dos seus dados no Google Drive."}</p><a class="btn" style="margin-top:12px" href="#/backup">${ic("pasta")}Abrir a aba Backup</a></section>
         <section class="painel"><div class="cab"><h2>Pasta do Vagabs</h2></div><p class="caminho-txt"><code>${esc(est.pasta || "")}</code></p><button class="btn" type="button" id="abrir-pasta-cfg">${ic("pasta")}Abrir a pasta</button></section>
         <section class="painel"><div class="cab"><h2>Ajuda</h2></div><div class="botoes" style="margin-top:0"><button class="btn" type="button" id="refazer-tutorial">Refazer o tutorial</button><a class="btn" href="#/setup">Refazer o setup</a><button class="btn" type="button" id="ver-novidades">Novidades</button></div></section>
       </div></div></section>`;
@@ -361,6 +352,44 @@
     document.getElementById("modelo")?.addEventListener("change", (e) => { C.claude = { ...C.claude, modelo: e.target.value }; VG.salvar("config", "Modelo salvo"); });
     document.querySelectorAll("[data-atu]").forEach((b) => b.addEventListener("click", async () => { est.atualizacao = await api(`atualizacao/${b.dataset.atu}`, { metodo: "POST" }); VG.render(true); }));
     if (!est.backupCarregado) { est.backupCarregado = true; api("backup").then((b) => { est.backup = b; VG.render(true); }).catch(() => {}); }
+    document.getElementById("abrir-pasta-cfg")?.addEventListener("click", () => api("pasta/abrir", { metodo: "POST" }));
+    document.getElementById("refazer-tutorial")?.addEventListener("click", () => tutorial.iniciar());
+    document.getElementById("ver-novidades")?.addEventListener("click", () => modal({ titulo: "Novidades", corpo: (est.todasNovidades || []).map(fmtNovidade).join(""), botoes: [{ rot: "Fechar", cls: "p" }] }));
+  }
+  VG.telas.config = telaConfig; VG.ligar.config = ligarConfig; VG.titulos.config = "Configurações";
+
+  /* ---------- aba Backup: duas formas de guardar uma cópia no Google Drive ----------
+     1) a pasta do Google Drive para computador (completo, de graça, sem login);
+     2) o conector do Google Drive na conta Claude (o Claude sobe um backup essencial; gasta o plano). */
+  function telaBackup() {
+    const b = est.backup;
+    if (!b) return `<section class="tela entra"><div class="titulo"><div><h1>Backup</h1><p class="frase">Conferindo…</p></div></div></section>`;
+    const quando = (x) => new Date(x).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    const ult = b.ultimo ? `Último: ${quando(b.ultimo.quando)}, ${VG.plural(b.ultimo.arquivos, "arquivo", "arquivos")}.` : "Nenhum backup ainda.";
+    const drive = est.ferramentas?.drive;
+    const conectado = (drive?.ferramentas || []).length > 0 || (b.ferramentasDrive || []).length > 0;
+    const ex = est.execucao;
+    return `<section class="tela entra"><div class="titulo"><div><h1>Backup</h1><p class="frase">Guarde uma cópia dos seus dados no Google Drive, para não perder nada se trocar de computador. Use uma das duas formas (ou as duas).</p></div></div>
+      <div class="opcoes-backup">
+        <section class="painel"><div class="cab"><h2>1. Pasta do Google Drive no computador</h2><span class="pilula proc">Recomendado</span></div>
+          <p class="meta">Completo e de graça: vão os seus dados, as vagas, os documentos e as conversas. O programa do Google Drive sobe tudo para a nuvem sozinho. Ficam os 10 backups mais novos.</p>
+          ${b.destino ? `<p class="caminho-txt"><code>${esc(b.destino)}</code></p><p class="meta">${b.drive && b.destino === b.drive ? "É a pasta do Google Drive deste computador." : "Pasta escolhida por você."}</p>`
+            : `<div class="caixa-info"><p><b>O Google Drive para computador não está instalado.</b> Para instalar:</p><ol><li>Baixe em <button class="btn txt" type="button" data-abrir-link="https://www.google.com/drive/download/">google.com/drive/download</button> e rode o instalador.</li><li>Entre com a sua conta Google. Ele cria uma unidade "Meu Drive" no computador.</li><li>Volte aqui e clique em "Conferir de novo".</li></ol><div class="botoes"><button class="btn" type="button" id="backup-conferir">${ic("atualizar")}Conferir de novo</button></div></div>`}
+          <p class="meta" style="margin-top:8px">${ult}</p>
+          <label class="interruptor"><input type="checkbox" id="backup-auto" ${b.auto ? "checked" : ""}><span>Fazer backup depois de cada varredura</span></label>
+          <div class="botoes"><button class="btn p" type="button" id="backup-fazer" ${b.destino ? "" : "disabled"}>${ic("check")}Fazer backup agora</button><button class="btn" type="button" id="backup-pasta">${ic("pasta")}Escolher outra pasta</button><button class="btn txt" type="button" id="backup-restaurar">${ic("atualizar")}Restaurar de um backup</button></div></section>
+        <section class="painel"><div class="cab"><h2>2. Pelo Claude (conector do Google Drive)</h2>${conectado ? `<span class="pilula proc">Conectado</span>` : `<span class="pilula agu">Não conectado</span>`}</div>
+          <p class="meta">Para quem não quer instalar nada. O Claude sobe para o seu Drive um <b>backup essencial</b>: perfil, preferências, feitos, empresas e vagas (as encerradas, resumidas). Ficam de fora os documentos, as conversas e o histórico de pedidos.</p>
+          <p class="aviso-linha" style="margin-top:8px">${ic("alerta")}Gasta o seu plano: hoje, cerca de ${b.estimativa ? `${b.estimativa.kb} KB, uns ${Math.round(b.estimativa.tokens / 1000)} mil tokens` : "alguns mil tokens"} por backup. Cresce com o número de vagas.</p>
+          ${conectado ? "" : `<div class="caixa-info"><p><b>Para conectar:</b></p><ol><li>Abra <button class="btn txt" type="button" data-abrir-link="https://claude.ai/settings/connectors">claude.ai › Configurações › Conectores</button>.</li><li>Ache o <b>Google Drive</b>, clique em Conectar e autorize com a sua conta Google.</li><li>Volte aqui e clique em "Testar a conexão".</li></ol></div>`}
+          <div class="botoes"><button class="btn" type="button" id="drive-testar">${ic("atualizar")}Testar a conexão</button>${drive && !conectado ? `<span class="aviso-linha">${ic("alerta")}Ainda não achei o Google Drive na sua conta Claude.</span>` : ""}</div>
+          <p class="meta" style="margin-top:8px">${b.ultimoClaude ? `Último pelo Claude: ${quando(b.ultimoClaude.quando)} (${esc(b.ultimoClaude.nome)}).` : "Nenhum backup pelo Claude ainda."}</p>
+          <label class="interruptor"><input type="checkbox" id="drive-auto" ${b.autoClaude ? "checked" : ""} ${conectado ? "" : "disabled"}><span>Também depois de cada varredura (gasta plano a cada vez)</span></label>
+          <div class="botoes"><button class="btn p" type="button" id="drive-fazer" ${conectado && !ex ? "" : "disabled"}>${ic("check")}Fazer backup pelo Claude</button><button class="btn txt" type="button" id="drive-restaurar" ${conectado && !ex ? "" : "disabled"}>${ic("atualizar")}Restaurar do Drive</button></div></section>
+      </div></section>`;
+  }
+  function ligarBackup() {
+    if (!est.backupCarregado) { est.backupCarregado = true; api("backup").then((b) => { est.backup = b; VG.render(true); }).catch(() => {}); }
     document.querySelectorAll("[data-abrir-link]").forEach((b) => b.addEventListener("click", () => api("abrir", { metodo: "POST", corpo: { url: b.dataset.abrirLink } })));
     document.getElementById("backup-auto")?.addEventListener("change", async (e) => { est.backup = await api("backup/auto", { metodo: "POST", corpo: { auto: e.target.checked } }); toast(e.target.checked ? "Backup junto com a varredura" : "Backup só quando você pedir"); });
     document.getElementById("backup-pasta")?.addEventListener("click", async () => { est.backup = await api("backup/pasta", { metodo: "POST" }); VG.render(true); });
@@ -377,11 +406,20 @@
         if (!r.ok) return toast(r.motivo);
         await VG.carregar(); toast(`Backup de ${new Date(r.de).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} restaurado.`); VG.render(true);
       } }] }));
-    document.getElementById("abrir-pasta-cfg")?.addEventListener("click", () => api("pasta/abrir", { metodo: "POST" }));
-    document.getElementById("refazer-tutorial")?.addEventListener("click", () => tutorial.iniciar());
-    document.getElementById("ver-novidades")?.addEventListener("click", () => modal({ titulo: "Novidades", corpo: (est.todasNovidades || []).map(fmtNovidade).join(""), botoes: [{ rot: "Fechar", cls: "p" }] }));
+    document.getElementById("backup-conferir")?.addEventListener("click", async () => { est.backup = await api("backup"); VG.render(true); toast(est.backup.destino ? "Achei a pasta do Google Drive" : "Ainda não achei o Google Drive"); });
+    document.getElementById("drive-testar")?.addEventListener("click", async (e) => {
+      e.target.disabled = true; toast("Testando a conexão…");
+      try { est.ferramentas = await api("claude/ferramentas", { metodo: "POST" }); } catch (x) { toast(x.message); }
+      est.backup = await api("backup"); VG.render(true);
+      toast((est.ferramentas?.drive?.ferramentas || []).length ? "Google Drive conectado" : "Ainda não achei o Google Drive na sua conta Claude");
+    });
+    document.getElementById("drive-auto")?.addEventListener("change", async (e) => { est.backup = await api("backup/claude/auto", { metodo: "POST", corpo: { auto: e.target.checked } }); toast(e.target.checked ? "Backup pelo Claude junto com a varredura" : "Backup pelo Claude só quando você pedir"); });
+    document.getElementById("drive-fazer")?.addEventListener("click", async () => { if (precisaClaude()) return; const r = await api("backup/claude", { metodo: "POST" }); if (!r.ok) return toast(r.motivo); verTrabalho(); });
+    document.getElementById("drive-restaurar")?.addEventListener("click", () => modal({ titulo: "Restaurar do Google Drive?", corpo: `<p class="frase" style="margin:0">O Claude baixa o backup mais novo do seu Drive e os dados de agora são trocados por ele. Antes, o Vagabs guarda uma cópia do que está aqui na pasta <b>_antes-de-restaurar</b>.</p>`,
+      botoes: [{ rot: "Cancelar" }, { rot: "Restaurar", cls: "p", acao: async () => { if (precisaClaude()) return; const r = await api("backup/claude/restaurar", { metodo: "POST" }); if (!r.ok) return toast(r.motivo); verTrabalho(); } }] }));
   }
-  VG.telas.config = telaConfig; VG.ligar.config = ligarConfig; VG.titulos.config = "Configurações";
+  VG.telas.backup = telaBackup; VG.ligar.backup = ligarBackup; VG.titulos.backup = "Backup";
+
 
   /* ---------- documentos (Base e setup) ---------- */
   VG.ligarDocumentos = async (listaEl, input) => {
@@ -553,6 +591,7 @@
     if (f.silencioso) { if (VG.rotaAtual()[0] !== "claude") redesenhar(); return; }
     let msg = "";
     if (f.tipo === "fila") msg = f.limite ? "O plano bateu no limite. O resto da fila espera." : `Fila terminada: ${VG.plural(f.feitos || 0, "pedido feito", "pedidos feitos")}${f.falhas ? `, ${f.falhas} sem terminar` : ""}.`;
+    if (f.tipo === "backup") msg = f.ok ? (f.colecoes ? `Backup do Drive restaurado (${VG.plural(f.colecoes, "parte", "partes")}).` : "Backup no Google Drive feito pelo Claude.") : `O backup pelo Claude não terminou: ${f.erro || f.motivo || ""}`;
     if (f.tipo === "varredura") msg = f.ok ? (f.semClaude ? "Varredura feita: nenhuma vaga nova desta vez." : `Varredura feita: ${VG.plural(f.novas || 0, "vaga nova", "vagas novas")} para triar.`) : `A varredura não terminou: ${f.erro || ""}`;
     if (msg) {
       toast(msg);

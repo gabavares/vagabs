@@ -228,3 +228,13 @@ code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; bac
 .passos-lista .meta { margin-top: 3px; line-height: 19px; }
 .passo-n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--raised); font-weight: 800; font-size: 14px; }
 .passos-lista li:first-child .passo-n { background: var(--vez); color: #1b1300; }
+
+/* triagem: ações do título e lista de vagas que saíram */
+.titulo-acoes { display: grid; justify-items: end; gap: 8px; }
+.lista-saiu { list-style: none; display: grid; gap: 8px; max-height: 300px; overflow: auto; }
+.lista-saiu li { padding: 8px 0; border-top: 1px solid var(--rule); font-size: 14px; }
+.lista-saiu li:first-child { border-top: 0; }
+
+/* aba Backup */
+.opcoes-backup { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--gap); align-items: start; }
+@media (max-width: 1100px) { .opcoes-backup { grid-template-columns: minmax(0, 1fr); } }

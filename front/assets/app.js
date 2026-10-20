@@ -116,7 +116,11 @@
   }
   let toastT;
   function toast(msg) { if (!msg) return; const t = document.getElementById("toast"); t.textContent = msg; t.classList.add("on"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2800); }
+  // mudou onde trabalhar, contratos ou sigilo: a triagem é reconferida sozinha (sem gastar o plano)
+  let reconfT = null;
+  function reconferirDepois() { clearTimeout(reconfT); reconfT = setTimeout(() => VG.reconferir?.({ silencioso: true }), 900); }
   async function salvar(colecao, msg = "Salvo") {
+    if (colecao === "preferencias" || colecao === "sigilo" || colecao === "config") reconferirDepois();
     try {
       carimbar(colecao);
       const resp = await api(`c/${colecao}`, { metodo: "PUT", corpo: db[colecao] });
@@ -321,9 +325,9 @@
   }
   function itemPedido(p, { controles = false, pos = 0, total = 0 } = {}) {
     const st = ST_PEDIDO[p.status] || ["agu", p.status];
-    const rotas = { vaga: `#/vaga/${p.onde?.id}`, feito: "#/base/feitos", empresa: "#/empresas", empresas: "#/empresas", base: p.onde?.id === "enriquecer" ? "#/base/enriquecer" : "#/base" };
+    const rotas = { vaga: `#/vaga/${p.onde?.id}`, feito: "#/base/feitos", empresa: "#/empresas", empresas: "#/empresas", base: p.onde?.id === "enriquecer" ? "#/base/enriquecer" : "#/base", fonte: "#/varreduras" };
     const onde = p.onde && p.onde.tipo !== "geral" ? `<a class="btn txt" href="${rotas[p.onde.tipo] || "#/pedidos"}">${esc(p.onde.rotulo || p.onde.id)}</a>` : "<span>Geral</span>";
-    const tipo = p.tipo === "versao" ? `<span class="etiqueta">${ic("versao")}Versão</span>` : p.tipo === "kit" ? `<span class="etiqueta">Kit</span>` : p.tipo === "enriquecer" ? `<span class="etiqueta">Enriquecer</span>` : "";
+    const tipo = p.tipo === "versao" ? `<span class="etiqueta">${ic("versao")}Versão</span>` : p.tipo === "kit" ? `<span class="etiqueta">Kit</span>` : p.tipo === "enriquecer" ? `<span class="etiqueta">Enriquecer</span>` : p.tipo === "fonte" ? `<span class="etiqueta">Fonte nova</span>` : p.tipo === "reavaliar" ? `<span class="etiqueta">Notas</span>` : "";
     const quando = String(p.respondido || p.criado || "");
     const revisar = p.tipo === "versao" && p.status === "revisao" ? blocoVersao(p.alvo) : "";
     const ctl = controles && p.status === "fila" ? `<span class="ctl-fila"><button class="btn txt" type="button" data-mover="${p.id}" data-dir="-1" ${pos === 0 ? "disabled" : ""} aria-label="Subir na fila">${ic("sobe")}</button><button class="btn txt" type="button" data-mover="${p.id}" data-dir="1" ${pos === total - 1 ? "disabled" : ""} aria-label="Descer na fila">${ic("desce")}</button><button class="btn txt nao" type="button" data-tirar="${p.id}">Tirar da fila</button></span>`
@@ -429,13 +433,14 @@
     const repr = db.vagas.filter((x) => x.estado === "reprovada").length;
     const dep = db.vagas.filter((x) => x.estado === "depois").length;
     const pilhas = `<div class="pilhas"><div class="pilha" id="p-aprovada"><b>${aprov}</b><span class="meta">Aprovadas</span></div><div class="pilha" id="p-depois"><b>${dep}</b><span class="meta">Para depois</span></div><div class="pilha" id="p-reprovada"><b>${repr}</b><span class="meta">Reprovadas</span></div></div>`;
-    if (!v && todas.length) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem<small>${plural(todas.length, "vaga na fila", "vagas na fila")}</small></h1><p class="frase">Nenhuma vaga passa nesses filtros.</p></div></div>${barraFiltros(todas)}<div class="painel" style="max-width:640px;margin-top:16px"><button class="btn" type="button" data-limpar-filtro>Limpar filtros</button></div></section>`;
+    if (!v && todas.length) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem<small>${plural(todas.length, "vaga na fila", "vagas na fila")}</small></h1><p class="frase">Nenhuma vaga passa nesses filtros.</p></div><div class="titulo-acoes">${botoesReconferir()}</div></div>${barraFiltros(todas)}<div class="painel" style="max-width:640px;margin-top:16px"><button class="btn" type="button" data-limpar-filtro>Limpar filtros</button></div></section>`;
     if (!v) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem</h1><p class="frase">Nada para triar agora. Uma varredura traz vagas novas.</p></div></div><div class="painel" style="max-width:640px">${pilhas}<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><a class="btn" href="#/varreduras">${ic("atualizar")}Ir para as varreduras</a><a class="btn" href="#/candidaturas">Ver candidaturas ${ic("seta")}</a></div></div></section>`;
     const dims = Object.entries(v.dimensoes || {});
     const risco = v.alertas && v.alertas.length;
     const S = db.sigilo || {};
     return `<section class="tela entra">
-      <div class="titulo"><div><h1>Triagem<small>${fila.length === todas.length ? plural(fila.length, "vaga na fila", "vagas na fila") : `${fila.length} de ${todas.length} vagas, com filtro`}</small></h1><p class="frase">Aprove o que vale um kit. Reprovar pede um motivo, que ajusta as próximas notas.</p></div><span class="meta atalhos">Atalhos: <kbd>A</kbd> aprovar · <kbd>R</kbd> reprovar · <kbd>D</kbd> depois · <kbd>V</kbd> virar · <kbd>J</kbd>/<kbd>K</kbd> navegar</span></div>
+      <div class="titulo"><div><h1>Triagem<small>${fila.length === todas.length ? plural(fila.length, "vaga na fila", "vagas na fila") : `${fila.length} de ${todas.length} vagas, com filtro`}</small></h1><p class="frase">Aprove o que vale um kit. Reprovar pede um motivo, que ajusta as próximas notas.</p></div>
+        <div class="titulo-acoes">${botoesReconferir()}<span class="meta atalhos">Atalhos: <kbd>A</kbd> aprovar · <kbd>R</kbd> reprovar · <kbd>D</kbd> depois · <kbd>V</kbd> virar · <kbd>J</kbd>/<kbd>K</kbd> navegar</span></div></div>
       ${barraFiltros(todas)}
       <div class="triagem">
         <div class="fila" role="listbox" aria-label="Fila de triagem">${fila.map((x) => `<button type="button" role="option" aria-selected="${x.id === v.id}" class="${x.id === v.id ? "sel" : ""}" data-id="${x.id}"><span class="empresa">${esc(x.empresa)}</span><span class="cargo">${esc(x.cargo)}</span><span class="linha">${x.exemplo ? seloExemplo(x) : x.estado === "depois" ? pilula("depois") : x.alertas?.length ? `<span class="pilula risco">Alerta de sigilo</span>` : `<span class="meta">${esc(x.contrato || "Contrato a confirmar")} · ${esc(x.local || "")}</span>`}<b>${x.nota ?? "—"}</b></span></button>`).join("")}</div>
@@ -486,7 +491,28 @@
     if (!L.length) return "";
     return `<div class="usa"><h3>Feitos que o kit vai destacar</h3><ul>${L.map((f) => `<li><b>${f.id}</b><span>${esc(f.texto)}</span></li>`).join("")}</ul></div>`;
   }
+  const botoesReconferir = () => `<div class="botoes" style="margin-top:0"><button class="btn" type="button" data-reconferir title="Passa as vagas pelas regras do seu perfil atual (cidades, formatos, contratos, sigilo). Não gasta o plano.">${ic("atualizar")}Reconferir com o meu perfil</button><button class="btn" type="button" data-reavaliar title="O Claude refaz as notas com o seu perfil atual. Entra na fila e gasta um pouco do plano.">${ic("versao")}Refazer as notas com o Claude</button></div>`;
+  function ligarReconferir() {
+    app.querySelectorAll("[data-reconferir]").forEach((b) => b.addEventListener("click", () => VG.reconferir()));
+    app.querySelectorAll("[data-reavaliar]").forEach((b) => b.addEventListener("click", () => {
+      if (db.pedidos.some((p) => p.tipo === "reavaliar" && ["fila", "processando"].includes(p.status))) return toast("Já está na fila");
+      novoPedido({ onde: { tipo: "geral" }, tipo: "reavaliar", texto: "Refazer as notas da triagem com o meu perfil atual." });
+      salvar("pedidos", MSG_FILA); render(true);
+    }));
+  }
+  // passa a triagem pelas regras do perfil atual; o que não encaixa sai (vira reprovada, com o motivo)
+  VG.reconferir = async ({ silencioso = false } = {}) => {
+    let r; try { r = await api("triagem/reconferir", { metodo: "POST" }); } catch (e) { if (!silencioso) toast(e.message); return; }
+    if (!r.ok) { if (!silencioso) toast(r.motivo); return; }
+    await carregar(["vagas"]);
+    if (r.sairam.length) {
+      const lista = r.sairam.slice(0, 8).map((x) => `<li><b>${esc(x.empresa)}</b> · ${esc(x.cargo)}<span class="meta" style="display:block">${esc(x.motivos.join("; "))}</span></li>`).join("");
+      VG.modal?.({ titulo: `${plural(r.sairam.length, "vaga saiu", "vagas saíram")} da triagem`, corpo: `<p class="frase" style="margin:0 0 10px">Com o seu perfil de agora, ${r.sairam.length === 1 ? "ela não encaixa" : "elas não encaixam"} mais. Foram para Candidaturas › Reprovadas, com o motivo. Se quiser alguma de volta, mude a fase na página da vaga.</p><ul class="lista-saiu">${lista}</ul>${r.sairam.length > 8 ? `<p class="meta">E mais ${r.sairam.length - 8}.</p>` : ""}`, botoes: [{ rot: "Entendi", cls: "p" }] });
+    } else if (!silencioso) toast(`Conferi ${plural(r.conferidas, "vaga", "vagas")}: todas encaixam no seu perfil.${r.alertas ? ` ${plural(r.alertas, "ganhou alerta", "ganharam alerta")} de sigilo.` : ""}`);
+    render(true);
+  };
   function ligarFiltros() {
+    ligarReconferir();
     let t;
     app.querySelectorAll("[data-filtro]").forEach((el) => {
       const k = el.dataset.filtro;
@@ -884,10 +910,47 @@
           <section class="painel" data-tut="varrer"><div class="cab"><h2>Rodar agora</h2></div><p class="meta">Leva alguns minutos. A coleta não gasta o plano; a avaliação das vagas pelo Claude, sim. Sem vaga nova, o Claude nem é chamado.</p>
             <button class="btn p g" type="button" id="rodar-varredura" style="margin-top:12px;width:100%" ${ex ? "disabled" : ""}>${ic("atualizar")}${ex?.tipo === "varredura" ? "Varredura em andamento…" : ex ? "O Claude está ocupado" : "Rodar varredura"}</button></section>
           <section class="painel"><div class="cab"><h2>Fontes</h2><a class="meta" href="#/config">ajustar</a></div><div class="fontes">${fontes.map(([k, nome, papel]) => `<div class="fonte"><span>${ic("triagem")}</span><div><b>${esc(nome)}</b><p class="meta">${esc(papel)}</p></div>${F[k] !== false ? `<span class="pilula proc">Ligada</span>` : `<span class="pilula enc">Desligada</span>`}</div>`).join("")}
-            <div class="fonte"><span>${ic("email")}</span><div><b>E-mail (Gmail)</b><p class="meta">${email ? "Lê só retornos de processos seletivos, sem enviar nada." : "Desligado: você atualiza as fases à mão."}</p></div>${email ? `<span class="pilula proc">Ligado</span>` : `<span class="pilula enc">À mão</span>`}</div></div></section>
+            <div class="fonte"><span>${ic("email")}</span><div><b>E-mail (Gmail)</b><p class="meta">${email ? "Lê só retornos de processos seletivos, sem enviar nada." : "Desligado: você atualiza as fases à mão."}</p></div>${email ? `<span class="pilula proc">Ligado</span>` : `<span class="pilula enc">À mão</span>`}</div>
+            ${lista(cfg.fontes_extras).map((f) => { const st = { montando: ["vez", "Montando"], pronta: ["proc", "Pronta"], claude: ["agu", "Pelo Claude"], erro: ["risco", "Não deu"] }[f.status] || ["agu", f.status]; const ped = db.pedidos.find((p) => p.tipo === "fonte" && p.onde?.id === f.id && ["fila", "processando"].includes(p.status));
+              return `<div class="fonte" data-fonte-extra="${esc(f.id)}"><span>${ic("externo")}</span><div><b>${esc(f.nome)}</b><p class="meta">${esc(f.nota || (ped ? (ped.status === "fila" ? "Na fila: rode a fila para o Claude montar a busca." : "O Claude está montando a busca.") : f.site))}${f.ultima ? ` Última varredura: ${f.ultima.erro ? `erro (${esc(f.ultima.erro)})` : plural(f.ultima.vagas, "vaga lida", "vagas lidas")}.` : ""}</p>
+                <div class="botoes" style="margin-top:6px">${["pronta", "claude"].includes(f.status) ? `<label class="filtro-chk"><input type="checkbox" data-fonte-ativa ${f.ativa !== false ? "checked" : ""}><span>Ligada</span></label>` : ""}${f.status === "erro" ? `<button class="btn txt" type="button" data-fonte-refazer>${ic("atualizar")}Tentar de novo</button>` : ""}<button class="btn txt nao" type="button" data-fonte-tirar>${ic("x")}Tirar</button></div></div><span class="pilula ${st[0]}">${st[1]}</span></div>`; }).join("")}
+            </div>
+            <form class="outro" id="nova-fonte" style="margin-top:14px"><input name="site" placeholder="Outro site de vagas (ex.: trampos.co)" aria-label="Site de vagas para acrescentar" autocomplete="off"><button class="btn" type="submit">${ic("mais")}Acrescentar</button></form>
+            <p class="meta" style="margin-top:6px">O Claude estuda o site e monta a busca (entra na fila). Se der certo, a varredura passa a ler esse site sozinha, sem gastar o plano.</p></section>
           <section class="painel"><div class="cab"><h2>Termos de busca</h2><a class="meta" href="#/config">editar</a></div>${lista(cfg.termos).length ? `<ul class="lista-simples">${cfg.termos.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<p class="meta">Nenhum termo ainda.</p>`}</section>
         </div>
       </div></section>`;
+  }
+
+  /* ---------- fontes acrescentadas pela pessoa (aba Varreduras) ---------- */
+  function ligarFontes() {
+    const V = () => (db.config.varredura = db.config.varredura || {});
+    const montar = (f) => {
+      if (db.pedidos.some((p) => p.tipo === "fonte" && p.onde?.id === f.id && ["fila", "processando"].includes(p.status))) return;
+      novoPedido({ onde: { tipo: "fonte", id: f.id, rotulo: f.nome }, tipo: "fonte", texto: `Montar a busca de vagas no site ${f.site}.` });
+    };
+    document.getElementById("nova-fonte")?.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      let site = e.target.site.value.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
+      if (!site || !/\./.test(site)) return toast("Escreva o endereço do site, como trampos.co");
+      const L = (V().fontes_extras = lista(V().fontes_extras));
+      if (L.some((f) => f.site.toLowerCase() === site.toLowerCase())) return toast("Esse site já está na lista");
+      const n = L.reduce((m, f) => Math.max(m, parseInt(String(f.id).slice(1), 10) || 0), 0) + 1;
+      const f = { id: `f${p2(n)}`, nome: site.split("/")[0].replace(/^www\./, ""), site, ativa: true, status: "montando" };
+      L.push(f); montar(f);
+      await salvar("config", ""); await salvar("pedidos", `${f.nome} entrou. ${MSG_FILA}`); render(true);
+    });
+    app.querySelectorAll("[data-fonte-extra]").forEach((el) => {
+      const f = lista(V().fontes_extras).find((x) => x.id === el.dataset.fonteExtra);
+      el.querySelector("[data-fonte-ativa]")?.addEventListener("change", (e) => { f.ativa = e.target.checked; salvar("config", e.target.checked ? `${f.nome} ligada` : `${f.nome} desligada`); });
+      el.querySelector("[data-fonte-refazer]")?.addEventListener("click", async () => { f.status = "montando"; f.nota = ""; montar(f); await salvar("config", ""); await salvar("pedidos", MSG_FILA); render(true); });
+      el.querySelector("[data-fonte-tirar]")?.addEventListener("click", async () => {
+        if (!confirm(`Tirar ${f.nome} das fontes?`)) return;
+        V().fontes_extras = lista(V().fontes_extras).filter((x) => x.id !== f.id);
+        db.pedidos.forEach((p) => { if (p.tipo === "fonte" && p.onde?.id === f.id && p.status === "fila") p.status = "descartado"; });
+        await salvar("config", `${f.nome} saiu das fontes`); await salvar("pedidos", ""); render(true);
+      });
+    });
   }
 
   /* ---------- roteador ---------- */
@@ -914,7 +977,7 @@
     if (rota === "empresas") ligarEmpresas();
     if (rota === "base") ligarBase();
     if (rota === "pedidos") { ligarFila(); salvarLidos(); }
-    if (rota === "varreduras") document.getElementById("rodar-varredura")?.addEventListener("click", () => VG.rodarVarredura());
+    if (rota === "varreduras") { document.getElementById("rodar-varredura")?.addEventListener("click", () => VG.rodarVarredura()); ligarFontes(); }
     VG.ligar[rota]?.(arg);
     app.querySelectorAll("[data-ver-trabalho]").forEach((b) => b.addEventListener("click", () => VG.verTrabalho?.()));
     app.querySelectorAll("[data-tutorial-abrir]").forEach((b) => b.addEventListener("click", (e) => { e.preventDefault(); VG.tutorial?.iniciar(); }));

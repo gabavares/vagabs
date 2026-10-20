@@ -1,7 +1,7 @@
-Próximos passos, filtros e atualização automática
+Triagem que acompanha o seu perfil, novos sites e backup pelo Claude
 
-- Atualização automática consertada: a partir desta versão, as próximas chegam sozinhas, sem baixar nada.
-- Botão "Próximos passos" no alto da tela: o que fazer agora, na ordem do processo (rodar a fila, enviar os kits, atualizar as respostas, triar, buscar vagas).
-- Filtros na triagem: cidade, modelo de trabalho, contrato, nota mínima, só com salário informado, sem alerta de sigilo e busca por empresa ou cargo.
+- A triagem se reconfere sozinha quando você muda o perfil (cidades, formatos, contratos, sigilo): o que não encaixa mais sai, com o motivo. Também tem o botão "Reconferir com o meu perfil", e "Refazer as notas com o Claude" põe a reavaliação na fila.
+- Acrescente outros sites de vagas em Varreduras (ex.: trampos.co). O Claude estuda o site, monta a busca e testa; depois a varredura lê esse site sozinha.
+- Nova aba Backup: pela pasta do Google Drive no computador (completo) ou pelo conector do Google Drive na sua conta Claude, com o passo a passo para conectar cada um.
 
 Com amor, Gab <3

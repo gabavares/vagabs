@@ -258,6 +258,7 @@
       await api("setup/concluir", { metodo: "POST", corpo: corpoSetup });
       try { localStorage.removeItem(RASCUNHO); } catch {}
       VG.estado.setup = true; await VG.carregar();
+      if (corpoSetup.refazer) VG.reconferir?.({ silencioso: true });
       location.hash = "#/hoje";
       if (corpoSetup.preparar) VG.preparando?.(); else setTimeout(() => VG.tutorial?.oferecer(), 600);
     } catch (e) { toast(`Não consegui terminar: ${e.message}`); }

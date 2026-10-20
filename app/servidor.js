@@ -53,7 +53,7 @@ function estadoApp() {
   const novidades = visto ? NOVIDADES.filter((n) => cmpVersao(n.versao, visto) > 0 && cmpVersao(n.versao, pasta.VERSAO) <= 0) : [];
   const dcfg = db ? db.ler("config") : {};
   return {
-    versao: pasta.VERSAO, pasta: c.pasta || null, pastaPadrao: pasta.padrao(), setup: !!dcfg.setup?.concluido, tutorial: dcfg.tutorial || null,
+    versao: pasta.VERSAO, pasta: db ? db.pasta : null, pastaPadrao: pasta.padrao(), setup: !!dcfg.setup?.concluido, tutorial: dcfg.tutorial || null,
     claude: est.vivo.claude, execucao: est.vivo.execucao, comando: est.vivo.comando || null, uso: est.vivo.uso, limite: est.vivo.limite, atualizacao: est.vivo.atualizacao,
     novidades, todasNovidades: NOVIDADES, console: { ativo: consoleP.estado().ativo },
   };
@@ -265,8 +265,17 @@ async function tratar(req, res) {
 consoleP.quandoTerminar(() => claude.checar().catch(() => {}));
 
 function iniciar() {
+  // a pasta lembrada existe: usa e preserva tudo o que tem dentro. Não existe mais (apagada, outra
+  // instalação): cria do zero, como instalação limpa, e o setup recomeça. Não dá para criar (disco
+  // que saiu, sem permissão): esquece o endereço e o setup pergunta de novo.
   const p = est.config().pasta;
-  if (p && fs.existsSync(p)) { try { abrirPasta(p); } catch (e) { console.error(e); } }
+  if (p) {
+    const nova = !fs.existsSync(p);
+    try {
+      abrirPasta(p);
+      if (nova) est.salvarConfig({ versao_vista: pasta.VERSAO }); // instalação limpa: nada de "novidades" antigas
+    } catch (e) { console.error(e); est.salvarConfig({ pasta: null }); }
+  }
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => tratar(req, res).catch((e) => { try { json(res, 500, { erro: e.message }); } catch {} }));
     srv.listen(0, "127.0.0.1", () => resolve({ porta: srv.address().port, chave: CHAVE }));

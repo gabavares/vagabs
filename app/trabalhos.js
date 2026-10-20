@@ -238,6 +238,7 @@ async function preparar({ sugerirEmpresas = false, temDocumentos = false } = {})
 
 /* ---------- checagem rápida (sem gastar o plano): o Claude carrega e para ---------- */
 async function checarFerramentas() {
+  if (!db) return { ok: false, erro: "A pasta do Vagabs ainda não foi criada. Volte ao passo Pasta.", vagabs: "sem pasta", gmail: { conectado: false, ferramentas: [] }, drive: { conectado: false, ferramentas: [] } };
   const r = await claude.executar({ pasta: db?.pasta, prompt: "ok", ate: "init", mcpConfig: db ? path.join(db.pasta, ".vagabs", "mcp.json") : undefined });
   const tools = r.init?.tools || [];
   const servidores = r.init?.mcp_servers || [];

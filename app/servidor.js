@@ -9,11 +9,12 @@ const http = require("http");
 const crypto = require("crypto");
 const { dialog, shell, BrowserWindow, app } = require("electron");
 const est = require("./estado");
+const modo = require("./modo");
 const pasta = require("./pasta");
 const claude = require("./claude");
 const consoleP = require("./console");
 const trab = require("./trabalhos");
-const atual = require("./atualizacao");
+const atual = modo.servidor?.atualizacao || require("./atualizacao");
 const backup = require("./backup");
 const { reconferir } = require("../nucleo/reconferir");
 const { criar, COLECOES } = require("../nucleo/dados");
@@ -26,7 +27,7 @@ const VENDOR = {
   "/vendor/addon-fit.js": path.join(RAIZ, "node_modules/@xterm/addon-fit/lib/addon-fit.js"),
 };
 const TIPOS = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8" };
-const CHAVE = crypto.randomBytes(24).toString("hex");
+const CHAVE = modo.servidor?.chave || crypto.randomBytes(24).toString("hex");
 const NOVIDADES = JSON.parse(fs.readFileSync(path.join(RAIZ, "novidades.json"), "utf8"));
 const cmpVersao = (a, b) => { const x = String(a).split(".").map(Number), y = String(b).split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
 
@@ -50,12 +51,13 @@ function abrirPasta(p) {
 function estadoApp() {
   const c = est.config();
   const visto = c.versao_vista || null;
-  const novidades = visto ? NOVIDADES.filter((n) => cmpVersao(n.versao, visto) > 0 && cmpVersao(n.versao, pasta.VERSAO) <= 0) : [];
+  const novidades = visto ? NOVIDADES.filter((n) => !n.interna && cmpVersao(n.versao, visto) > 0 && cmpVersao(n.versao, pasta.VERSAO) <= 0) : [];
   const dcfg = db ? db.ler("config") : {};
   return {
     versao: pasta.VERSAO, pasta: db ? db.pasta : null, pastaPadrao: pasta.padrao(), setup: !!dcfg.setup?.concluido, tutorial: dcfg.tutorial || null,
     claude: est.vivo.claude, execucao: est.vivo.execucao, comando: est.vivo.comando || null, uso: est.vivo.uso, limite: est.vivo.limite, atualizacao: est.vivo.atualizacao,
     novidades, todasNovidades: NOVIDADES, console: { ativo: consoleP.estado().ativo },
+    modo: modo.servidor ? "servidor" : "pc", servidor: modo.servidor?.estado?.() || null,
   };
 }
 
@@ -203,6 +205,7 @@ const ROTAS = {
     return fs.readdirSync(dir, { withFileTypes: true }).filter((f) => f.isFile()).map((f) => ({ nome: f.name, kb: Math.round(fs.statSync(path.join(dir, f.name)).size / 1024) }));
   },
 };
+if (modo.servidor?.rotas) Object.assign(ROTAS, modo.servidor.rotas({ db: () => db, trab, lerJson }));
 
 async function tratar(req, res) {
   const url = new URL(req.url, "http://127.0.0.1");
@@ -216,14 +219,18 @@ async function tratar(req, res) {
 
   const p = decodeURIComponent(url.pathname);
   if (!p.startsWith("/api/")) {
-    if (VENDOR[p]) return estatico(res, VENDOR[p]);
+    if (VENDOR[p]) {
+      // no servidor não há terminal (nem o xterm): devolve vazio para a página carregar igual
+      if (!fs.existsSync(VENDOR[p])) { res.writeHead(200, { "Content-Type": TIPOS[path.extname(p)] }); return res.end(""); }
+      return estatico(res, VENDOR[p]);
+    }
     const arq = path.normalize(path.join(FRONT, p === "/" ? "index.html" : p));
     if (!arq.startsWith(FRONT)) { res.writeHead(403); return res.end(); }
     return estatico(res, arq);
   }
   if (p === "/api/eventos") {
     res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-store", Connection: "keep-alive" });
-    res.write(`data: ${JSON.stringify({ tipo: "ola" })}\n\n`);
+    res.write(`retry: 1500\ndata: ${JSON.stringify({ tipo: "ola" })}\n\n`);
     const enviar = (e) => res.write(`data: ${JSON.stringify(e)}\n\n`);
     est.eventos.on("evento", enviar);
     const pulso = setInterval(() => res.write(": pulso\n\n"), 20000);
@@ -278,7 +285,12 @@ function iniciar() {
   }
   return new Promise((resolve) => {
     const srv = http.createServer((req, res) => tratar(req, res).catch((e) => { try { json(res, 500, { erro: e.message }); } catch {} }));
-    srv.listen(0, "127.0.0.1", () => resolve({ porta: srv.address().port, chave: CHAVE }));
+    // no servidor: socket Unix só do dono (a ponte da web fala por ele); no PC: porta aleatória em 127.0.0.1
+    const sock = modo.servidor?.socket;
+    if (sock) {
+      fs.rmSync(sock, { force: true });
+      srv.listen(sock, () => { fs.chmodSync(sock, 0o600); resolve({ socket: sock, chave: CHAVE }); });
+    } else srv.listen(0, "127.0.0.1", () => resolve({ porta: srv.address().port, chave: CHAVE }));
   });
 }
 

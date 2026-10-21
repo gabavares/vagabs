@@ -5,6 +5,7 @@
 "use strict";
 const path = require("path");
 const { vivo, emitir } = require("./estado");
+const modo = require("./modo");
 const claude = require("./claude");
 const pasta = require("./pasta");
 const coletor = require("../nucleo/coletor");
@@ -67,7 +68,7 @@ function terminar(fim) {
   emitir("execucao", { execucao: null, fim: { tipo: ex?.tipo, rotulo: ex?.rotulo, ...fim } });
 }
 
-function modelo() { return db.ler("config").claude?.modelo || "claude-opus-5-5"; }
+function modelo() { return modo.servidor?.modelo || db.ler("config").claude?.modelo || "claude-opus-5-5"; }
 async function rodarClaude(prompt, esforco, extra = {}) {
   controle = new AbortController();
   const r = await claude.executar({
@@ -144,6 +145,11 @@ async function rodarVarredura() {
   comecar("varredura", "Varredura do dia");
   let res = { ok: false };
   try {
+    // no servidor: o gancho lê o e-mail (só leitura) e deixa os retornos em captura/email-<data>.json
+    if (modo.servidor?.antesDaVarredura && cfg.email?.modo === "arquivo") {
+      passo("Lendo seu e-mail");
+      try { await modo.servidor.antesDaVarredura({ pasta: db.pasta, hoje }); } catch (e) { passo(`Não consegui ler o e-mail: ${e.message}`); }
+    }
     passo("Coletando vagas nas fontes");
     const cap = await coletor.coletar(db, { progresso: passo, log: () => {} });
     passo(`${cap.lidas} vagas novas lidas, ${cap.candidatas.length} para o Claude avaliar`);
@@ -154,14 +160,16 @@ async function rodarVarredura() {
       db.objeto("config", { varredura: v2 });
     }
     const pelaClaude = (cfg.varredura?.fontes_extras || []).filter((f) => f.ativa !== false && f.status === "claude");
-    const email = cfg.email?.modo === "gmail";
+    const arqEmail = path.join(db.pasta, "captura", `email-${hoje}.json`);
+    const emailArq = cfg.email?.modo === "arquivo" && (() => { try { const e = JSON.parse(require("fs").readFileSync(arqEmail, "utf8")); return e.status === "ok" && (e.mensagens || []).length > 0; } catch { return false; } })();
+    const email = cfg.email?.modo === "gmail" || emailArq;
     if (!cap.candidatas.length && !email && !pelaClaude.length) {
       // nada para avaliar: registra sem gastar o plano
       db.adicionar("varreduras", { data: agoraTxt(), fontes: cap.fontes, lidas: cap.lidas, bloqueadas: cap.bloqueadas, novas: 0, abaixo_do_corte: Math.max(0, cap.lidas - cap.bloqueadas) });
       res = { ok: true, novas: 0, semClaude: true };
     } else {
       const antes = db.ler("vagas").length;
-      const r = await rodarClaude(`Faça a varredura de ${hoje} seguindo a seção "Varredura" de .vagabs/instrucoes.md. A coleta está na ferramenta captura (data ${hoje}). Agora são ${agoraTxt()}.${email ? " O e-mail está ligado (Gmail): leia só os retornos de processos." : " O e-mail está desligado: pule o passo 6."}${pelaClaude.length ? ` Procure também nestas fontes, pelo Claude: ${pelaClaude.map((f) => `${f.nome} (${f.site})`).join(", ")}.` : " Não há fontes só pelo Claude."}`, "medium");
+      const r = await rodarClaude(`Faça a varredura de ${hoje} seguindo a seção "Varredura" de .vagabs/instrucoes.md. A coleta está na ferramenta captura (data ${hoje}). Agora são ${agoraTxt()}.${emailArq ? ` O e-mail já foi lido: os retornos estão em captura/email-${hoje}.json (leia com Read).` : email ? " O e-mail está ligado (Gmail): leia só os retornos de processos." : " O e-mail está desligado: pule o passo 6."}${pelaClaude.length ? ` Procure também nestas fontes, pelo Claude: ${pelaClaude.map((f) => `${f.nome} (${f.site})`).join(", ")}.` : " Não há fontes só pelo Claude."}`, "medium");
       const registrou = db.ler("varreduras").some((v) => String(v.data).startsWith(hoje));
       res = { ok: r.ok && registrou, novas: db.ler("vagas").length - antes, erro: r.ok ? null : explicar(r) };
     }

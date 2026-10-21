@@ -1,5 +1,14 @@
 [
   {
+    "versao": "0.1.7",
+    "data": "2026-10-21",
+    "interna": true,
+    "titulo": "Ajustes internos",
+    "itens": [
+      "Preparação para o Vagabs rodar também num servidor. Nada muda no seu app."
+    ]
+  },
+  {
     "versao": "0.1.6",
     "data": "2026-10-20",
     "titulo": "Instalação limpa que funciona",

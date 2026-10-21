@@ -53,7 +53,7 @@
     if (agenda.length) s.push({ t: "Prepare-se para o que está marcado", d: agenda.map((v) => `${v.proxima.texto} · ${v.empresa}, ${VG.dm(v.proxima.data)}`).join("; ") + ". Peça ao Claude um roteiro na página da vaga.", n: agenda.length, acao: ["Abrir", `#/vaga/${agenda[0].id}`] });
     if (enviadas.length || emProcesso.length) s.push({ t: "Atualize as respostas das empresas", d: `Quando uma empresa responder (triagem, teste, entrevista, recusa, proposta), mude a fase na página da vaga${db.config?.email?.modo === "gmail" ? " (o Gmail ajuda na varredura)" : ""}.${paradas.length ? ` ${VG.plural(paradas.length, "candidatura está", "candidaturas estão")} há 10 dias ou mais sem resposta: vale cobrar.` : ""}`, n: enviadas.length + emProcesso.length, acao: ["Ver candidaturas", "#/candidaturas"] });
     if (novas.length) s.push({ t: "Trie as vagas novas", d: `Aprove o que vale um kit e reprove com motivo o que não serve. As aprovadas entram na fila.`, n: novas.length, acao: ["Ir para a triagem", "#/triagem"] });
-    if (Date.now() - ult > 24 * 3600 * 1000) s.push({ t: "Busque vagas novas", d: ult ? `A última varredura foi há mais de um dia.` : "Você ainda não rodou nenhuma varredura.", n: 0, acao: ["Rodar varredura", "varredura"] });
+    if (est.modo !== "servidor" && Date.now() - ult > 24 * 3600 * 1000) s.push({ t: "Busque vagas novas", d: ult ? `A última varredura foi há mais de um dia.` : "Você ainda não rodou nenhuma varredura.", n: 0, acao: ["Rodar varredura", "varredura"] });
     if (semConf.length || (db.empresas || []).filter((e) => e.prioridade !== "bloqueio").length < 5) s.push({ t: "Fortaleça a sua base", d: [semConf.length && `${VG.plural(semConf.length, "feito espera", "feitos esperam")} confirmação`, (db.empresas || []).length < 5 && "a lista de empresas-alvo está curta"].filter(Boolean).join("; ") + ". Em Base › Enriquecer, jogue o que lembrar e o Claude organiza.", n: semConf.length, acao: ["Abrir a Base", "#/base/feitos"] });
     return s;
   }
@@ -228,7 +228,7 @@
         <section class="painel chat">
           <div class="chat-msgs" id="chat-msgs">${corpoChat()}</div>
           ${outro ? `<p class="aviso-linha chat-aviso">${ic("relogio")}O Claude está ocupado com ${est.execucao.tipo === "varredura" ? "a varredura" : "a fila"}. A conversa volta quando ele terminar.</p>` : ""}
-          ${!pronto && c ? `<p class="aviso-linha chat-aviso">${ic("alerta")}${c.instalado ? "O Claude Code não está conectado. Faça o login no terminal aqui ao lado." : "O Claude Code não foi encontrado. Instale pelo terminal aqui ao lado."}</p>` : ""}
+          ${!pronto && c ? `<p class="aviso-linha chat-aviso">${ic("alerta")}${est.modo === "servidor" ? "O Claude Code do servidor não está pronto. Confira o login por SSH." : c.instalado ? "O Claude Code não está conectado. Faça o login no terminal aqui ao lado." : "O Claude Code não foi encontrado. Instale pelo terminal aqui ao lado."}</p>` : ""}
           <form class="chat-caixa" id="chat-form"><textarea id="chat-texto" rows="1" placeholder="Escreva para o Claude…" aria-label="Mensagem para o Claude"></textarea>
             ${est.conversa.ocupado ? `<button class="btn g" type="button" id="chat-parar">${ic("parar")}Parar</button>` : `<button class="btn p g" type="submit" ${outro || !pronto ? "disabled" : ""}>${ic("enviar")}Enviar</button>`}</form>
           <p class="meta chat-dica">Enter envia · Shift+Enter quebra a linha</p>
@@ -242,9 +242,9 @@
             <div><span>Uso da semana</span><b>${pct(semana)}</b></div></div>
             ${est.limite ? `<p class="aviso-linha" style="margin-top:12px">${ic("alerta")}O plano bateu no limite${est.limite.ate ? `; volta por volta de ${new Date(est.limite.ate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : ""}.</p>` : ""}
             <p class="meta" style="margin-top:12px">O uso aparece depois que o Claude trabalha pela primeira vez nesta sessão. Pedidos longos funcionam melhor pela fila (tela Pedidos).</p></section>
-          <details class="painel terminal-avancado" ${!pronto && c ? "open" : ""}><summary><b>Terminal (avançado)</b><span class="meta">login, instalação e o Claude Code puro</span></summary>
+          ${est.modo === "servidor" ? "" : `<details class="painel terminal-avancado" ${!pronto && c ? "open" : ""}><summary><b>Terminal (avançado)</b><span class="meta">login, instalação e o Claude Code puro</span></summary>
             <div class="botoes" style="margin-top:12px">${c && !c.instalado ? `<button class="btn p" type="button" data-cmd="instalar">${ic("play")}Instalar o Claude Code</button>` : ""}${c?.instalado && !c.logado ? `<button class="btn p" type="button" data-cmd="login">${ic("play")}Fazer login</button>` : ""}<button class="btn" type="button" data-cmd="claude">${ic("play")}Abrir o Claude aqui</button><button class="btn txt" type="button" data-reiniciar>${ic("atualizar")}Reiniciar</button></div>
-            <div class="console" data-console style="margin-top:12px"></div></details>
+            <div class="console" data-console style="margin-top:12px"></div></details>`}
         </div></div></section>`;
   }
   const rolar = (forcar) => { const el = document.getElementById("chat-msgs"); if (el && (forcar || el.scrollHeight - el.scrollTop - el.clientHeight < 160)) el.scrollTop = el.scrollHeight; };
@@ -284,7 +284,7 @@
       est.conversa.mensagens = []; VG.render(true); toast("Conversa nova. A anterior fica guardada na pasta conversas.");
     });
     const det = document.querySelector(".terminal-avancado"), cons = document.querySelector("[data-console]");
-    const abrirTerminal = () => { if (det.open && cons && !cons.dataset.ligado) { cons.dataset.ligado = "1"; VG.terminal(cons, { altura: 300 }); } };
+    const abrirTerminal = () => { if (det?.open && cons && !cons.dataset.ligado) { cons.dataset.ligado = "1"; VG.terminal(cons, { altura: 300 }); } };
     det?.addEventListener("toggle", abrirTerminal); abrirTerminal();
     document.querySelectorAll("[data-cmd]").forEach((b) => b.addEventListener("click", () => { if (det) det.open = true; api("console/comando", { metodo: "POST", corpo: { qual: b.dataset.cmd } }); }));
     document.querySelector("[data-reiniciar]")?.addEventListener("click", async () => { await api("console/reiniciar", { metodo: "POST" }); });
@@ -302,13 +302,27 @@
 
   /* ---------- tela: Configurações ---------- */
   const MODELOS = [["claude-opus-5-5", "Opus 5.5 · o melhor (padrão)"], ["claude-sonnet-5-5", "Sonnet 5.5 · gasta menos do plano"]];
+  // no servidor: varredura por dias e hora, fila que roda sozinha e volta de versão
+  const DIAS = [[1, "Seg"], [2, "Ter"], [3, "Qua"], [4, "Qui"], [5, "Sex"], [6, "Sáb"], [7, "Dom"]];
+  const HORAS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`);
+  function painelServidor(C) {
+    const S = C.servidor || {}, A = S.agenda || { dias: [], hora: "04:00" }, info = est.servidor || {};
+    return `<section class="painel"><div class="cab"><h2>No servidor</h2>${info.proxima ? `<span class="meta">próxima varredura: ${esc(info.proxima)}</span>` : ""}</div>
+      <p class="meta" style="margin:0 0 8px">Varredura agendada (horário de São Paulo)</p>
+      <div class="opcoes">${DIAS.map(([n, r]) => `<button type="button" class="ficha" data-dia="${n}" aria-pressed="${(A.dias || []).includes(n)}">${r}</button>`).join("")}</div>
+      <label class="campo" style="margin-top:12px"><span>Horário</span><select id="agenda-hora">${HORAS.map((h) => `<option ${h === (A.hora || "04:00") ? "selected" : ""}>${h}</option>`).join("")}</select></label>
+      <label class="interruptor"><input type="checkbox" id="fila-sozinha" ${S.fila_sozinha ? "checked" : ""}><span>Rodar a fila sozinha: o pedido que entra é feito em seguida, sem precisar clicar em Rodar fila. "Para depois" continua esperando.</span></label>
+      <button class="btn p" type="button" id="salvar-servidor" style="margin-top:14px">${ic("check")}Salvar</button>
+      ${info.anterior ? `<p class="meta" style="margin-top:14px">Versão anterior guardada: ${esc(info.anterior)}.</p><button class="btn" type="button" id="voltar-versao" style="margin-top:8px">${ic("atualizar")}Voltar para a ${esc(info.anterior)}</button>` : ""}</section>`;
+  }
   function telaConfig() {
     const C = db.config || {}, V = C.varredura || {}, F = V.fontes || { gupy: true, linkedin: true, empresas: true };
-    const a = est.atualizacao || {};
+    const a = est.atualizacao || {}, srv = est.modo === "servidor";
     const ESTA = { dev: "Versão de desenvolvimento: sem atualização automática.", "sem-repositorio": "Atualização automática ainda não configurada nesta versão.", procurando: "Procurando…", "em-dia": "Você está na versão mais nova.", disponivel: `Versão ${a.versao} disponível.`, baixando: `Baixando… ${a.progresso || 0}%`, pronta: `Versão ${a.versao} baixada. Reinicie para instalar.`, erro: `Não consegui conferir: ${a.erro || ""}`, parada: "—" };
     const linhas = (k) => esc((V[k] || []).join("\n"));
     return `<section class="tela entra"><div class="titulo"><div><h1>Configurações<small>Vagabs ${esc(est.versao)}</small></h1></div></div>
       <div class="grade"><div class="coluna">
+        ${srv ? painelServidor(C) : ""}
         <section class="painel"><div class="cab"><h2>Busca de vagas</h2></div>
           <div class="campos-config">
             <label><span>Termos de busca <small class="meta">(um por linha)</small></span><textarea data-lista="termos" rows="6">${linhas("termos")}</textarea></label>
@@ -319,21 +333,22 @@
           <div class="opcoes" style="margin-top:12px">${[["gupy", "Gupy"], ["linkedin", "LinkedIn público"], ["empresas", "Sites das empresas"]].map(([k, r]) => `<button type="button" class="ficha" data-fonte="${k}" aria-pressed="${F[k] !== false}">${r}</button>`).join("")}</div>
           <button class="btn p" type="button" id="salvar-busca" style="margin-top:14px">${ic("check")}Salvar a busca</button></section>
         <section class="painel"><div class="cab"><h2>E-mail</h2></div>
-          <div class="opcoes"><button type="button" class="ficha" data-email="manual" aria-pressed="${C.email?.modo !== "gmail"}">À mão</button><button type="button" class="ficha" data-email="gmail" aria-pressed="${C.email?.modo === "gmail"}">Pelo Gmail (só leitura)</button></div>
-          <p class="meta" style="margin-top:10px">Pelo Gmail, a varredura lê retornos de processos com o conector do Gmail da sua conta Claude (claude.ai › Configurações › Conectores). Nada é enviado.</p>
+          ${srv ? `<div class="opcoes"><button type="button" class="ficha" data-email="manual" aria-pressed="${C.email?.modo !== "arquivo"}">À mão</button><button type="button" class="ficha" data-email="arquivo" aria-pressed="${C.email?.modo === "arquivo"}">E-mail pessoal (no servidor)</button></div>
+          <p class="meta" style="margin-top:10px">No servidor, o e-mail pessoal é lido antes de cada varredura, só para ler os retornos de processos. Nada é enviado.</p>` : `<div class="opcoes"><button type="button" class="ficha" data-email="manual" aria-pressed="${C.email?.modo !== "gmail"}">À mão</button><button type="button" class="ficha" data-email="gmail" aria-pressed="${C.email?.modo === "gmail"}">Pelo Gmail (só leitura)</button></div>
+          <p class="meta" style="margin-top:10px">Pelo Gmail, a varredura lê retornos de processos com o conector do Gmail da sua conta Claude (claude.ai › Configurações › Conectores). Nada é enviado.</p>`}
           ${C.email?.modo === "gmail" ? `<div class="botoes"><button class="btn" type="button" data-testar-gmail>${ic("atualizar")}Testar o Gmail</button>${est.ferramentas?.gmail ? (est.ferramentas.gmail.ferramentas.length ? `<span class="ok-linha">${ic("check")}Gmail conectado.</span>` : `<span class="aviso-linha">${ic("alerta")}Gmail não encontrado na sua conta Claude.</span>`) : ""}</div>` : ""}</section>
         <section class="painel"><div class="cab"><h2>Claude</h2></div>
-          <label class="campo"><span>Modelo</span><select id="modelo">${MODELOS.map(([v, r]) => `<option value="${v}" ${(C.claude?.modelo || "claude-opus-5-5") === v ? "selected" : ""}>${r}</option>`).join("")}</select></label>
-          <p class="meta" style="margin-top:8px">Esforço médio nos pedidos e alto nos kits. Se o seu plano bater no limite com frequência, troque para o Sonnet.</p></section>
+          ${srv ? `<p class="meta">Modelo travado no servidor: ${esc(est.servidor?.modelo || "Opus 5.5")}. Esforço médio nos pedidos e alto nos kits.</p>` : `<label class="campo"><span>Modelo</span><select id="modelo">${MODELOS.map(([v, r]) => `<option value="${v}" ${(C.claude?.modelo || "claude-opus-5-5") === v ? "selected" : ""}>${r}</option>`).join("")}</select></label>
+          <p class="meta" style="margin-top:8px">Esforço médio nos pedidos e alto nos kits. Se o seu plano bater no limite com frequência, troque para o Sonnet.</p>`}</section>
       </div>
       <div class="coluna">
         <section class="painel"><div class="cab"><h2>Atualizações</h2></div><p class="meta">${esc(ESTA[a.estado] || a.estado || "—")}</p>
           ${a.estado === "disponivel" && a.notas ? `<div class="notas-txt">${esc(a.notas).replace(/\n/g, "<br>")}</div>` : ""}
-          <div class="botoes">${a.estado === "disponivel" ? `<button class="btn p" type="button" data-atu="baixar">Baixar a atualização</button>` : a.estado === "pronta" ? `<button class="btn ok" type="button" data-atu="instalar">Reiniciar e atualizar</button>` : `<button class="btn" type="button" data-atu="procurar" ${["dev", "sem-repositorio", "procurando", "baixando"].includes(a.estado) ? "disabled" : ""}>${ic("atualizar")}Procurar atualizações</button>`}</div>
+          <div class="botoes">${a.estado === "disponivel" ? `<button class="btn p" type="button" data-atu="baixar">${srv ? "Baixar e testar" : "Baixar a atualização"}</button>` : a.estado === "pronta" ? `<button class="btn ok" type="button" data-atu="instalar">${srv ? "Instalar e reiniciar o servidor" : "Reiniciar e atualizar"}</button>` : `<button class="btn" type="button" data-atu="procurar" ${["dev", "sem-repositorio", "procurando", "baixando"].includes(a.estado) ? "disabled" : ""}>${ic("atualizar")}Procurar atualizações</button>`}</div>
           <p class="meta" style="margin-top:10px">A atualização troca só o programa. Seus dados, documentos e configurações ficam onde estão.</p></section>
-        <section class="painel"><div class="cab"><h2>Backup</h2></div><p class="meta">${est.backup?.ultimo || est.backup?.ultimoClaude ? `Último backup: ${new Date((est.backup.ultimo || est.backup.ultimoClaude).quando).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : "Guarde uma cópia dos seus dados no Google Drive."}</p><a class="btn" style="margin-top:12px" href="#/backup">${ic("pasta")}Abrir a aba Backup</a></section>
-        <section class="painel"><div class="cab"><h2>Pasta do Vagabs</h2></div><p class="caminho-txt"><code>${esc(est.pasta || "")}</code></p><button class="btn" type="button" id="abrir-pasta-cfg">${ic("pasta")}Abrir a pasta</button></section>
-        <section class="painel"><div class="cab"><h2>Ajuda</h2></div><div class="botoes" style="margin-top:0"><button class="btn" type="button" id="refazer-tutorial">Refazer o tutorial</button><a class="btn" href="#/setup">Refazer o setup</a><button class="btn" type="button" id="ver-novidades">Novidades</button></div></section>
+        ${srv ? "" : `<section class="painel"><div class="cab"><h2>Backup</h2></div><p class="meta">${est.backup?.ultimo || est.backup?.ultimoClaude ? `Último backup: ${new Date((est.backup.ultimo || est.backup.ultimoClaude).quando).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.` : "Guarde uma cópia dos seus dados no Google Drive."}</p><a class="btn" style="margin-top:12px" href="#/backup">${ic("pasta")}Abrir a aba Backup</a></section>`}
+        <section class="painel"><div class="cab"><h2>Pasta do Vagabs</h2></div><p class="caminho-txt"><code>${esc(est.pasta || "")}</code></p>${srv ? "" : `<button class="btn" type="button" id="abrir-pasta-cfg">${ic("pasta")}Abrir a pasta</button>`}</section>
+        <section class="painel"><div class="cab"><h2>Ajuda</h2></div><div class="botoes" style="margin-top:0"><button class="btn" type="button" id="refazer-tutorial">Refazer o tutorial</button>${srv ? "" : `<a class="btn" href="#/setup">Refazer o setup</a>`}<button class="btn" type="button" id="ver-novidades">Novidades</button></div></section>
       </div></div></section>`;
   }
   function ligarConfig() {
@@ -347,7 +362,15 @@
       v.corte = +document.querySelector("[data-corte]").value;
       C.varredura = v; VG.salvar("config", "Busca salva");
     });
-    document.querySelectorAll("[data-email]").forEach((b) => b.addEventListener("click", () => { C.email = { ...C.email, modo: b.dataset.email }; VG.salvar("config", b.dataset.email === "gmail" ? "E-mail pelo Gmail" : "E-mail à mão"); VG.render(true); }));
+    document.querySelectorAll("[data-email]").forEach((b) => b.addEventListener("click", () => { C.email = { ...C.email, modo: b.dataset.email }; VG.salvar("config", { gmail: "E-mail pelo Gmail", arquivo: "E-mail pessoal ligado" }[b.dataset.email] || "E-mail à mão"); VG.render(true); }));
+    const dias = new Set(C.servidor?.agenda?.dias || []);
+    document.querySelectorAll("[data-dia]").forEach((b) => b.addEventListener("click", () => { const n = +b.dataset.dia; if (dias.has(n)) dias.delete(n); else dias.add(n); b.setAttribute("aria-pressed", dias.has(n)); }));
+    document.getElementById("salvar-servidor")?.addEventListener("click", () => {
+      C.servidor = { ...C.servidor, agenda: { dias: [...dias].sort(), hora: document.getElementById("agenda-hora").value }, fila_sozinha: document.getElementById("fila-sozinha").checked };
+      VG.salvar("config", dias.size ? "Agenda salva" : "Agenda salva: nenhum dia marcado, a varredura só roda pelo botão");
+    });
+    document.getElementById("voltar-versao")?.addEventListener("click", () => modal({ titulo: `Voltar para a ${est.servidor.anterior}?`, corpo: `<p class="frase" style="margin:0">O servidor troca o programa pela versão anterior e reinicia. Seus dados não mudam.</p>`,
+      botoes: [{ rot: "Cancelar" }, { rot: "Voltar", cls: "p", acao: async () => { try { await api("servidor/voltar", { metodo: "POST" }); toast("Reiniciando o servidor…"); } catch (e) { toast(e.message); } } }] }));
     document.querySelector("[data-testar-gmail]")?.addEventListener("click", async () => { toast("Testando…"); try { est.ferramentas = await api("claude/ferramentas", { metodo: "POST" }); } catch (e) { toast(e.message); } VG.render(true); });
     document.getElementById("modelo")?.addEventListener("change", (e) => { C.claude = { ...C.claude, modelo: e.target.value }; VG.salvar("config", "Modelo salvo"); });
     document.querySelectorAll("[data-atu]").forEach((b) => b.addEventListener("click", async () => { est.atualizacao = await api(`atualizacao/${b.dataset.atu}`, { metodo: "POST" }); VG.render(true); }));
@@ -528,7 +551,7 @@
   let perguntouVarredura = false;
   function talvezVarredura() {
     const V = db.config?.varredura || {};
-    if (perguntouVarredura || !est.setup || est.execucao || !(V.termos || []).length || !est.claude?.logado || tutorial.ativo()) return;
+    if (perguntouVarredura || est.modo === "servidor" || !est.setup || est.execucao || !(V.termos || []).length || !est.claude?.logado || tutorial.ativo()) return;
     if (V.adiada_em === new Date().toISOString().slice(0, 10)) return;
     const ultima = V.ultima ? new Date(V.ultima).getTime() : 0;
     if (Date.now() - ultima < 24 * 3600 * 1000) return;
@@ -562,11 +585,20 @@
   }
   document.addEventListener("focusout", () => setTimeout(() => { if (pendente && !digitando()) redesenhar(); }, 100));
   const colecoesSujas = new Set();
+  let conectouAntes = false;
+  // a conexão caiu e voltou (no servidor, a ponte renova os eventos de tempos em tempos): põe a tela em dia
+  async function reconectou() {
+    const antes = JSON.stringify(est.execucao || null);
+    Object.assign(est, await api("estado"));
+    desenharTrabalho(); atualizarPainelTrab();
+    if (antes !== JSON.stringify(est.execucao || null) || est.execucao) { await VG.carregar(); redesenhar(); }
+  }
   function conectar() {
     const fonte = new EventSource("api/eventos");
     fonte.onmessage = async (m) => {
       let e; try { e = JSON.parse(m.data); } catch { return; }
-      if (e.tipo === "pty") paraTerminais((t) => t.term.write(e.dados));
+      if (e.tipo === "ola") { if (conectouAntes) reconectou().catch(() => {}); conectouAntes = true; }
+      else if (e.tipo === "pty") paraTerminais((t) => t.term.write(e.dados));
       else if (e.tipo === "conversa") VG.chatEvento(e);
       else if (e.tipo === "pty-fim") paraTerminais((t) => t.term.write("\r\n[console encerrado — clique em Reiniciar o console]\r\n"));
       else if (e.tipo === "dados") {

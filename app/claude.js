@@ -7,11 +7,14 @@ const os = require("os");
 const path = require("path");
 const { spawn, execFile } = require("child_process");
 const { vivo, emitir } = require("./estado");
+const modo = require("./modo");
+const WIN = process.platform === "win32";
 
 const LIMITE_TXT = ["hit your session limit", "usage limit", "rate limit", "limite de uso", "session limit reached", "weekly limit"];
 
 function candidatos() {
   const h = os.homedir();
+  if (!WIN) return [process.env.CLAUDE_CAMINHO, path.join(h, "bin", "claude"), path.join(h, ".local", "bin", "claude")].filter(Boolean);
   return [
     path.join(h, ".local", "bin", "claude.exe"),
     path.join(process.env.LOCALAPPDATA || path.join(h, "AppData", "Local"), "Programs", "claude", "claude.exe"),
@@ -22,6 +25,7 @@ function onde() {
   return new Promise((resolve) => {
     const achado = candidatos().find((c) => fs.existsSync(c));
     if (achado) return resolve(achado);
+    if (!WIN) return execFile("which", ["claude"], { timeout: 8000 }, (err, out) => resolve(err ? null : String(out).trim().split("\n")[0] || null));
     execFile("where.exe", ["claude"], { windowsHide: true, timeout: 8000 }, (err, out) => {
       const linhas = String(out || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
       resolve(err ? null : linhas.find((l) => /\.exe$/i.test(l)) || linhas.find((l) => /\.cmd$/i.test(l)) || null);
@@ -42,7 +46,7 @@ function rodarSimples(exe, args, timeout = 20000) {
 }
 function ambiente(extra = {}) {
   const bin = path.join(os.homedir(), ".local", "bin");
-  const PATH = (process.env.PATH || process.env.Path || "").split(";").includes(bin) ? (process.env.PATH || process.env.Path) : `${bin};${process.env.PATH || process.env.Path || ""}`;
+  const PATH = (process.env.PATH || process.env.Path || "").split(path.delimiter).includes(bin) ? (process.env.PATH || process.env.Path) : `${bin}${path.delimiter}${process.env.PATH || process.env.Path || ""}`;
   const env = { ...process.env, PATH, ...extra };
   delete env.Path; delete env.ELECTRON_RUN_AS_NODE;
   return env;
@@ -80,6 +84,7 @@ function executar({ pasta, prompt, modelo, esforco, ferramentas = [], mcpConfig,
     if (esforco) args.push("--effort", esforco);
     if (mcpConfig) args.push("--mcp-config", mcpConfig);
     if (ferramentas.length) args.push("--allowedTools", ferramentas.join(","));
+    if (modo.servidor?.negar?.length) args.push("--disallowedTools", modo.servidor.negar.join(","));
     if (sistema) args.push("--append-system-prompt", sistema);
     const [cmd, a, o] = preparar(exe, args);
     const logArq = pasta ? path.join(pasta, "logs", `${new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19)}.jsonl`) : null;

@@ -59,8 +59,12 @@ async function checar() {
     const v = await rodarSimples(caminho, ["--version"]);
     r.versao = (v.out.match(/\d+\.\d+\.\d+/) || [null])[0];
     if (!r.versao) r.instalado = false;
-    const a = await rodarSimples(caminho, ["auth", "status", "--json"]);
-    try { const j = JSON.parse(a.out); r.logado = !!j.loggedIn; r.email = j.email || null; r.plano = j.subscriptionType || null; r.metodo = j.authMethod || null; } catch {}
+    const status = async () => { const a = await rodarSimples(caminho, ["auth", "status", "--json"]); try { return JSON.parse(a.out); } catch { return null; } };
+    let j = await status();
+    // com o Claude trabalhando, o login pode estar sendo renovado e aparecer "fora" por um instante: confere de novo
+    if (!j?.loggedIn) { await new Promise((ok) => setTimeout(ok, 1500)); j = (await status()) || j; }
+    if (!j?.loggedIn && vivo.execucao && vivo.claude?.logado) j = { loggedIn: true, email: vivo.claude.email, subscriptionType: vivo.claude.plano, authMethod: vivo.claude.metodo };
+    if (j) { r.logado = !!j.loggedIn; r.email = j.email || null; r.plano = j.subscriptionType || null; r.metodo = j.authMethod || null; }
   }
   vivo.claude = r;
   emitir("claude", { claude: r });

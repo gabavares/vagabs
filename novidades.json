@@ -1,5 +1,19 @@
 [
   {
+    "versao": "0.1.8",
+    "data": "2026-10-21",
+    "titulo": "Processo seletivo com datas",
+    "itens": [
+      "Na página da vaga, as fases viraram uma trilha: clique na fase para mudar.",
+      "Passos do processo: teste, case e entrevistas entram com o dia marcado ou o prazo de entrega, na ordem que você quiser (dá para pôr um passo no meio). O que tem data aparece em Hoje, na linha do tempo e no topo dos Próximos passos.",
+      "Candidaturas em andamento mostram, à esquerda, quantos passos da fase atual você já fez (por exemplo, 5/8 do kit).",
+      "O cartão da vaga aparece também no kit: clique nele para ver tudo e, se quiser, desistir da vaga.",
+      "Na triagem, os números de Aprovadas, Para depois e Reprovadas levam para essas vagas.",
+      "Cidades da busca: acrescente e tire em Perfil › Preferências ou em Configurações › Onde buscar.",
+      "As abas mudaram de nome: Base agora é Perfil, e Pedidos agora é Fila."
+    ]
+  },
+  {
     "versao": "0.1.7",
     "data": "2026-10-21",
     "interna": true,

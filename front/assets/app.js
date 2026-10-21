@@ -154,7 +154,7 @@
   }
 
   /* ---------- casca ---------- */
-  const NAV = [["hoje", "Hoje"], ["triagem", "Triagem"], ["candidaturas", "Candidaturas"], ["empresas", "Empresas"], ["base", "Base"], ["pedidos", "Pedidos"], ["claude", "Claude"]];
+  const NAV = [["hoje", "Hoje"], ["triagem", "Triagem"], ["candidaturas", "Candidaturas"], ["empresas", "Empresas"], ["base", "Perfil"], ["pedidos", "Fila"], ["claude", "Claude"]];
   function desenharNav(rota) {
     const c = contagens();
     const cont = {
@@ -173,10 +173,35 @@
     VG.desenharTrabalho?.();
   }
 
+  /* ---------- processo seletivo da vaga: os passos depois de enviar (teste, case, entrevistas…) ----------
+     v.processo = [{id, titulo, tipo, data?, hora?, feito}], na ordem. O próximo passo com data vira v.proxima
+     (aparece em Hoje, nos próximos passos e na linha do tempo). */
+  const TIPOS_PASSO = { entrevista: "Entrevista", teste: "Teste", case: "Case", triagem: "Conversa com o RH", outro: "Outro" };
+  const ETAPA_DO_PASSO = { entrevista: "entrevista", teste: "case", case: "case", triagem: "triagem", outro: "processo" };
+  const passosProcesso = (v) => lista(v.processo);
+  const pendentesComData = (v) => passosProcesso(v).filter((p) => !p.feito && p.data).sort((a, b) => `${a.data} ${a.hora || ""}`.localeCompare(`${b.data} ${b.hora || ""}`));
+  function sincronizarProxima(v) {
+    const p = pendentesComData(v)[0];
+    if (p) v.proxima = { data: p.data, hora: p.hora || "", texto: p.titulo || TIPOS_PASSO[p.tipo] || "Próximo passo", passo: p.id };
+    else if (v.proxima?.passo) delete v.proxima;
+  }
+  // quão pronta está a fase atual: os passos do kit (antes de enviar) ou os do processo (depois)
+  function progressoFase(v) {
+    if (["aprovada", "kit"].includes(v.estado) && lista(v.kit?.passos).length) { const P = v.kit.passos; return { feitos: P.filter((p) => p.feito).length, total: P.length, rotulo: "passos do kit" }; }
+    if (["enviada", "processo", "proposta"].includes(v.estado) && passosProcesso(v).length) { const P = passosProcesso(v); return { feitos: P.filter((p) => p.feito).length, total: P.length, rotulo: "passos do processo" }; }
+    return null;
+  }
+  function anel(v) {
+    const pr = progressoFase(v);
+    if (!pr) return `<span class="anel" title="Nenhum passo nesta fase ainda"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" class="fundo"/></svg><b>—</b></span>`;
+    const C = 2 * Math.PI * 9, f = pr.total ? pr.feitos / pr.total : 0;
+    return `<span class="anel ${pr.feitos === pr.total ? "completo" : pr.feitos ? "comecou" : ""}" title="${pr.feitos} de ${pr.total} ${pr.rotulo}"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" class="fundo"/><circle cx="12" cy="12" r="9" class="feito" stroke-dasharray="${(f * C).toFixed(1)} ${C.toFixed(1)}" transform="rotate(-90 12 12)"/></svg><b>${pr.feitos}/${pr.total}</b><span class="sr">${pr.feitos} de ${pr.total} ${pr.rotulo}</span></span>`;
+  }
+
   /* ---------- trilhas (acompanhamento das candidaturas) ---------- */
   function dominio(lst) {
     const ini = Math.min(...lst.map((v) => data(v.etapas[0].data).getTime())) - 3 * DIA;
-    const fimDados = Math.max(...lst.flatMap((v) => v.etapas.map((e) => data(e.data).getTime())), hoje().getTime());
+    const fimDados = Math.max(...lst.flatMap((v) => [...v.etapas, ...pendentesComData(v)].map((e) => data(e.data).getTime())), hoje().getTime());
     return [ini, Math.max(fimDados + 5 * DIA, hoje().getTime() + 12 * DIA)];
   }
   function trilhas(lst, { eixo = true } = {}) {
@@ -191,7 +216,7 @@
     const cab = eixo ? `<div class="trilha-eixo" aria-hidden="true"><span></span><div class="eixo">${semanas.filter((t) => Math.abs(t - h) > 2.5 * DIA).map((t) => { const d = new Date(t); return `<span style="left:${pos(t)}%">${p2(d.getDate())}/${p2(d.getMonth() + 1)}</span>`; }).join("")}<span style="left:${pos(h)}%;color:var(--ink);font-weight:700">hoje</span></div><span></span></div>` : "";
     const linhas = lst.map((v) => {
       const passadas = etapasPassadas(v);
-      const futuras = (v.etapas || []).filter((e) => data(e.data) > hoje());
+      const futuras = [...(v.etapas || []).filter((e) => data(e.data) > hoje()), ...pendentesComData(v).filter((p) => data(p.data) >= hoje()).map((p) => ({ data: p.data, tipo: p.tipo, nota: p.titulo, passo: true }))];
       let segs = "", marcos = "";
       passadas.forEach((e, i) => {
         const a = data(e.data).getTime();
@@ -203,7 +228,7 @@
       futuras.forEach((e) => {
         const b = data(e.data).getTime();
         segs += `<i class="seg futuro" style="left:${pos(h)}%;width:${pos(b) - pos(h)}%" title="${esc(e.nota || ETAPA[e.tipo])}"></i>`;
-        marcos += `<span class="marco fut" style="left:${pos(b)}%;transform:translateX(-100%)"><b>${esc(ETAPA[e.tipo] || e.tipo)}</b> · ${dm(e.data)}</span>`;
+        marcos += `<span class="marco fut" style="left:${pos(b)}%;transform:translateX(-100%)"><b>${esc(e.passo ? e.nota || TIPOS_PASSO[e.tipo] : ETAPA[e.tipo] || e.tipo)}</b> · ${dm(e.data)}</span>`;
       });
       const corAtual = atual ? COR_ETAPA[atual.tipo] || "agu" : "agu";
       let n = "—", sub = "";
@@ -213,7 +238,7 @@
       else if (futuras.length) { n = `${dias(env.data)} d`; sub = "no processo"; }
       else { n = `${dias(atual?.data)} d`; sub = { case: "desde o teste", triagem: "desde a triagem", entrevista: "desde a entrevista" }[atual?.tipo] || "sem movimento"; }
       return `<a class="trilha" href="#/vaga/${v.id}">
-        <span class="quem"><span class="empresa">${esc(v.empresa)}</span><span class="cargo">${esc(v.cargo)}</span></span>
+        <span class="quem com-anel">${anel(v)}<span class="quem-txt"><span class="empresa">${esc(v.empresa)}</span><span class="cargo">${esc(v.cargo)}</span></span></span>
         <span class="pista">${linhaSemanas}<i class="hoje" style="left:${pos(h)}%"></i>${segs}<i class="ponto ${corAtual}" style="left:${pos(h)}%"></i>${marcos}</span>
         <span class="dias">${n}<small>${esc(sub)}</small></span></a>`;
     }).join("");
@@ -357,13 +382,14 @@
     novas.length && acoes.push({ data: hojeTxt(), t: `Triar ${plural(novas.length, "vaga", "vagas")}`, m: `${novas[0].empresa} lidera com aderência ${novas[0].nota}`, href: "#/triagem" });
     c.naFila && acoes.push({ data: hojeTxt(), t: `Rodar a fila (${c.naFila})`, m: "O Claude faz um pedido de cada vez", href: "#/pedidos" });
     kits.forEach((v) => acoes.push({ data: hojeTxt(), t: `Enviar kit · ${v.empresa}`, m: `Kit pronto${ultimaEtapa(v) ? ` desde ${dm(ultimaEtapa(v).data)}` : ""}`, href: `#/vaga/${v.id}` }));
-    db.vagas.filter((v) => v.proxima && dias(v.proxima.data) <= 0).forEach((v) => acoes.push({ data: v.proxima.data, t: `${String(v.proxima.texto).split(" (")[0]} · ${v.empresa}`, m: v.proxima.hora ? `${String(v.proxima.hora).replace(":00", "h")} · preparação no kit` : "", href: `#/vaga/${v.id}` }));
+    db.vagas.filter((v) => v.proxima && !v.proxima.passo && dias(v.proxima.data) <= 0).forEach((v) => acoes.push({ data: v.proxima.data, t: `${String(v.proxima.texto).split(" (")[0]} · ${v.empresa}`, m: v.proxima.hora ? `${String(v.proxima.hora).replace(":00", "h")} · preparação no kit` : "", href: `#/vaga/${v.id}` }));
+    db.vagas.filter((v) => ATIVAS.includes(v.estado)).forEach((v) => pendentesComData(v).forEach((p) => acoes.push({ data: p.data, t: `${p.titulo || TIPOS_PASSO[p.tipo]} · ${v.empresa}`, m: `${dias(p.data) > 0 ? "prazo passou · " : ""}${p.hora ? `${p.hora.replace(":00", "h")} · ` : ""}${TIPOS_PASSO[p.tipo] || ""}`, href: `#/vaga/${v.id}` })));
     acoes.sort((a, b) => data(a.data) - data(b.data));
 
     const conf = db.feitos.filter((f) => f.confirmado).length;
     const comeco = [
       { ok: !!db.config.setup?.concluido, t: "Setup", m: "Seu perfil e o que você busca", href: "#/base" },
-      { ok: db.feitos.length > 0 && conf === db.feitos.length, t: "Revisar os feitos", m: db.feitos.length ? `${conf} de ${db.feitos.length} confirmados` : "Anexe o CV na Base para o Claude montar", href: "#/base/feitos" },
+      { ok: db.feitos.length > 0 && conf === db.feitos.length, t: "Revisar os feitos", m: db.feitos.length ? `${conf} de ${db.feitos.length} confirmados` : "Anexe o CV em Perfil para o Claude montar", href: "#/base/feitos" },
       { ok: db.empresas.filter((e) => e.prioridade !== "bloqueio").length >= 5, t: "Empresas-alvo", m: `${db.empresas.filter((e) => e.prioridade !== "bloqueio").length} na lista`, href: "#/empresas" },
       { ok: db.varreduras.length > 0, t: "Primeira varredura", m: db.varreduras.length ? "Feita" : "Busca vagas nas fontes", href: "#/varreduras" },
       { ok: !!db.config.tutorial?.concluido, t: "Tutorial", m: "Aprenda a usar com a vaga de exemplo", href: "#/hoje", tut: true },
@@ -433,7 +459,7 @@
     const aprov = db.vagas.filter((x) => passou(x, "aprovada")).length;
     const repr = db.vagas.filter((x) => x.estado === "reprovada").length;
     const dep = db.vagas.filter((x) => x.estado === "depois").length;
-    const pilhas = `<div class="pilhas"><div class="pilha" id="p-aprovada"><b>${aprov}</b><span class="meta">Aprovadas</span></div><div class="pilha" id="p-depois"><b>${dep}</b><span class="meta">Para depois</span></div><div class="pilha" id="p-reprovada"><b>${repr}</b><span class="meta">Reprovadas</span></div></div>`;
+    const pilhas = `<div class="pilhas"><a class="pilha" id="p-aprovada" href="#/candidaturas/ativas" title="Ver as aprovadas"><b>${aprov}</b><span class="meta">Aprovadas</span></a><a class="pilha" id="p-depois" href="#/candidaturas/depois" title="Ver as que ficaram para depois"><b>${dep}</b><span class="meta">Para depois</span></a><a class="pilha" id="p-reprovada" href="#/candidaturas/reprovadas" title="Ver as reprovadas"><b>${repr}</b><span class="meta">Reprovadas</span></a></div>`;
     if (!v && todas.length) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem<small>${plural(todas.length, "vaga na fila", "vagas na fila")}</small></h1><p class="frase">Nenhuma vaga passa nesses filtros.</p></div><div class="titulo-acoes">${botoesReconferir()}</div></div>${barraFiltros(todas)}<div class="painel" style="max-width:640px;margin-top:16px"><button class="btn" type="button" data-limpar-filtro>Limpar filtros</button></div></section>`;
     if (!v) return `<section class="tela entra"><div class="titulo"><div><h1>Triagem</h1><p class="frase">Nada para triar agora. Uma varredura traz vagas novas.</p></div></div><div class="painel" style="max-width:640px">${pilhas}<div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap"><a class="btn" href="#/varreduras">${ic("atualizar")}Ir para as varreduras</a><a class="btn" href="#/candidaturas">Ver candidaturas ${ic("seta")}</a></div></div></section>`;
     const dims = Object.entries(v.dimensoes || {});
@@ -460,7 +486,7 @@
             <article class="face verso" aria-hidden="${!virado}">
               <div class="topo"><div><span class="empresa">${esc(v.empresa)}</span><h2>A nota, por dimensão</h2></div><div class="nota-grande"><b>${v.nota ?? "—"}</b><small>aderência</small></div></div>
               <div class="dims">${dims.map(([k, n]) => `<div class="dim"><span>${esc(k)}</span><span class="t"><i class="${n < 50 ? "baixo" : ""}" style="width:${n}%"></i></span><b>${n}</b></div>`).join("") || `<p class="meta">Sem detalhamento para esta vaga.</p>`}</div>
-              <p class="meta" style="margin-top:18px">As dimensões e os pesos ficam na Base, em Preferências. Seus motivos de reprovação ajustam as próximas notas.</p>
+              <p class="meta" style="margin-top:18px">As dimensões e os pesos ficam em Perfil › Preferências. Seus motivos de reprovação ajustam as próximas notas.</p>
               <div class="rodape"><span class="meta">Nota de 0 a 100</span><button class="btn" type="button" data-virar>${ic("virar")}Voltar para a vaga</button></div>
             </article>
           </div>
@@ -477,7 +503,7 @@
           </div>
         </div>
         <div class="coluna lateral">
-          <section class="painel"><div class="cab"><h2>Sigilo</h2><a class="meta" href="#/base/sigilo">regras</a></div>${!S.ativo ? `<p class="meta">Sigilo desligado. Se você busca sem o seu empregador saber, ligue em Base › Sigilo.</p>` : risco ? `<p class="meta">O filtro marcou esta vaga pela sua lista de alerta em Base › Sigilo.</p>` : `<p class="meta" style="display:flex;gap:8px;align-items:center;color:var(--proc-t)">${ic("check")}Passou no filtro de sigilo.</p>`}</section>
+          <section class="painel"><div class="cab"><h2>Sigilo</h2><a class="meta" href="#/base/sigilo">regras</a></div>${!S.ativo ? `<p class="meta">Sigilo desligado. Se você busca sem o seu empregador saber, ligue em Perfil › Sigilo.</p>` : risco ? `<p class="meta">O filtro marcou esta vaga pela sua lista de alerta em Perfil › Sigilo.</p>` : `<p class="meta" style="display:flex;gap:8px;align-items:center;color:var(--proc-t)">${ic("check")}Passou no filtro de sigilo.</p>`}</section>
           <section class="painel"><div class="cab"><h2>Origem</h2></div><div class="lista-kv"><div><span>Fonte</span><b>${esc(v.fonte)}</b></div><div><span>Publicada</span><b>${v.publicada ? dm(v.publicada) : "—"}</b></div><div><span>Captada</span><b>${dm(v.captada)}</b></div></div>${v.url ? `<a class="btn" style="margin-top:12px" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">${ic("externo")}Abrir vaga original</a>` : `<p class="meta" style="margin-top:12px">${v.exemplo ? "Vaga de exemplo: não tem link." : "Sem link."}</p>`}</section>
           <section class="painel"><div class="cab"><h2>Pedir ao Claude</h2></div><p class="meta">Uma dúvida sobre esta vaga, antes de decidir.</p>${campoPedido({ tipo: "vaga", id: v.id, rotulo: v.empresa }, "Ex.: quem lidera esse time?")}</section>
           ${pilhas}
@@ -599,18 +625,20 @@
           ${p.tipo !== "resposta" && p.texto ? `<p class="texto">${esc(p.texto)}</p>` : ""}
         </div></div>`).join("");
     const pk = db.pedidos.find((p) => p.tipo === "kit" && p.onde?.id === v.id && ["fila", "processando", "erro"].includes(p.status));
-    const pend = v.estado === "aprovada" && !k ? `<div class="vazio">${pk ? `Kit ${ST_PEDIDO[pk.status][1].toLowerCase()} desde ${dm(pk.criado)}, ${String(pk.criado).slice(11)}. ` : ""}${pk?.status === "processando" ? "O Claude está montando agora." : pk?.status === "erro" ? "O Claude não terminou. Ponha de novo na fila na tela Pedidos." : `Clique em <b>Rodar fila</b> (lá em cima) quando quiser, e o kit aparece aqui.`}</div>` : "";
+    const pend = v.estado === "aprovada" && !k ? `<div class="vazio">${pk ? `Kit ${ST_PEDIDO[pk.status][1].toLowerCase()} desde ${dm(pk.criado)}, ${String(pk.criado).slice(11)}. ` : ""}${pk?.status === "processando" ? "O Claude está montando agora." : pk?.status === "erro" ? "O Claude não terminou. Ponha de novo na fila na tela Fila." : `Clique em <b>Rodar fila</b> (lá em cima) quando quiser, e o kit aparece aqui.`}</div>` : "";
     return `<section class="tela entra">
-      <div class="cab-vaga"><div><a class="btn txt" href="#/candidaturas" style="padding:0">${ic("seta", "icone-volta")}Candidaturas</a><span class="empresa" style="display:block;margin-top:8px">${esc(v.empresa)}</span><h1>${esc(v.cargo)}</h1><div class="linha2">${pilula(v.estado)}<label class="fase" data-tut="fase"><span>Fase</span><select id="mudar-fase" aria-label="Mudar a fase desta vaga">${Object.entries(ESTADOS).map(([key, [, r]]) => `<option value="${key}" ${key === v.estado ? "selected" : ""}>${esc(r)}</option>`).join("")}</select></label><span class="etiqueta">${esc(v.contrato || "Contrato a confirmar")}</span><span class="meta">${esc(v.local || "")}${v.modelo ? ` · ${esc(v.modelo)}` : ""} · aderência <b style="color:var(--ink)">${v.nota ?? "—"}</b></span>${seloExemplo(v)}</div></div>
+      <div class="cab-vaga"><div><a class="btn txt" href="#/candidaturas" style="padding:0">${ic("seta", "icone-volta")}Candidaturas</a><span class="empresa" style="display:block;margin-top:8px">${esc(v.empresa)}</span><h1>${esc(v.cargo)}</h1><div class="linha2">${pilula(v.estado)}<span class="etiqueta">${esc(v.contrato || "Contrato a confirmar")}</span><span class="meta">${esc(v.local || "")}${v.modelo ? ` · ${esc(v.modelo)}` : ""} · aderência <b style="color:var(--ink)">${v.nota ?? "—"}</b></span>${seloExemplo(v)}</div></div>
         ${v.estado === "kit" ? `<div style="display:flex;gap:10px;flex-wrap:wrap"><button class="btn ok g" type="button" id="marcar-enviada" data-tut="enviada">${ic("check")}Marquei como enviada</button></div>` : ""}</div>
       <div class="grade">
         <div class="coluna">
+          ${painelFases(v)}
           ${k ? `<section class="painel" data-tut="guia"><div class="cab"><h2>Guia de candidatura</h2><span class="meta">${feitos} de ${passosK.length} passos · ${esc(k.plataforma || "")}</span></div><div class="medidor"><i style="width:${passosK.length ? (feitos / passosK.length) * 100 : 0}%"></i></div><div class="passos">${passos}</div></section>
           <section class="painel"><div class="cab"><h2>Carta</h2><span><button class="btn txt" type="button" data-versao-rapida='${esc(JSON.stringify({ col: "vagas", id: v.id, campo: ["kit", "carta"] }))}' data-rotulo="Carta">${ic("versao")}Pedir uma versão</button><button class="btn txt" type="button" data-copiar-carta>${ic("copiar")}Copiar</button></span></div><div class="resposta"><textarea id="carta" style="min-height:220px" aria-label="Carta">${esc(k.carta || "")}</textarea></div>${blocoVersao({ col: "vagas", id: v.id, campo: ["kit", "carta"] })}</section>` : ""}
           ${pend}
-          ${!k && !pend ? `<section class="painel"><div class="cab"><h2>Sobre a vaga</h2></div><p class="frase">${esc(v.resumo || "Sem resumo.")}</p>${observacoes(v)}${(v.motivos || []).length ? `<ul class="motivos">${v.motivos.map((m) => `<li>${ic("check")}<span>${esc(m)}</span></li>`).join("")}</ul>` : ""}</section><section class="painel"><div class="cab"><h2>Acompanhamento</h2></div>${ATIVAS.includes(v.estado) && (v.etapas || []).length ? trilhas([v], { eixo: true }) : `<p class="meta">Fase: ${esc(ESTADOS[v.estado]?.[1].toLowerCase() || v.estado)}.</p>`}</section>` : ""}
+          ${!k && !pend && ATIVAS.includes(v.estado) && (v.etapas || []).length ? `<section class="painel"><div class="cab"><h2>Acompanhamento</h2></div>${trilhas([v], { eixo: true })}</section>` : ""}
         </div>
         <div class="coluna lateral-fixa">
+          ${cartaoVaga(v)}
           <section class="painel"><div class="cab"><h2>Anexos</h2></div><div class="lista-kv">${lista(k?.anexos || ["CV (o kit indica a versão)"]).map((a) => `<div><span>${ic("arquivo")}</span><b style="flex:1">${esc(a)}</b></div>`).join("")}</div></section>
           <section class="painel"><div class="cab"><h2>Histórico</h2></div><div class="historico">${hist || `<p class="meta">Sem movimentação.</p>`}</div></section>
           <section class="painel"><div class="cab"><h2>Pedir ao Claude</h2></div>${campoPedido({ tipo: "vaga", id: v.id, rotulo: v.empresa }, "Ex.: deixa a resposta 3 mais curta")}${db.pedidos.filter((p) => p.onde?.id === v.id).map((p) => itemPedido(p)).join("")}</section>
@@ -618,8 +646,118 @@
         </div>
       </div></section>`;
   }
+  // as fases numa trilha clicável; depois de enviar, os passos do processo, com data e na ordem que a pessoa quiser
+  const FASES = [["nova", "Triagem"], ["aprovada", "Aprovada"], ["kit", "Kit pronto"], ["enviada", "Enviada"], ["processo", "Em processo"], ["proposta", "Proposta"], ["encerrada", "Encerrada"]];
+  function painelFases(v) {
+    const fora = v.estado === "reprovada";
+    const i = FASES.findIndex(([key]) => key === (v.estado === "depois" ? "nova" : v.estado));
+    const P = passosProcesso(v), feitosP = P.filter((p) => p.feito).length, hj = hojeTxt();
+    const fases = FASES.map(([key, r], j) => `<li class="${!fora && j < i ? "passou" : ""} ${!fora && j === i ? "atual" : ""}"><button type="button" data-fase="${key}" ${!fora && j === i ? 'aria-current="step"' : ""} title="Mudar a fase para ${esc(r)}"><i aria-hidden="true">${!fora && j < i ? ic("check") : ""}</i><span>${esc(r)}</span>${key === "processo" && P.length ? `<small>${feitosP}/${P.length}</small>` : ""}</button></li>`).join("");
+    const inserir = (j) => `<li class="inserir"><button type="button" data-inserir="${j}" title="Acrescentar um passo aqui" aria-label="Acrescentar um passo aqui">${ic("mais")}</button></li>`;
+    const linha = (p, j) => { const atrasado = !p.feito && p.data && p.data < hj; return `${j ? inserir(j) : ""}<li class="passo-proc ${p.feito ? "feito" : ""} ${atrasado ? "atrasado" : ""}" data-passo="${esc(p.id)}">
+        <button class="check" type="button" data-feito-passo aria-pressed="${!!p.feito}" aria-label="Marcar ${esc(p.titulo || "este passo")} como feito">${ic("check")}</button>
+        <input class="titulo-passo" data-k="titulo" value="${esc(p.titulo || "")}" placeholder="Ex.: entrevista com a gestora" aria-label="Nome do passo" autocomplete="off">
+        <select data-k="tipo" aria-label="Tipo do passo">${Object.entries(TIPOS_PASSO).map(([t, r]) => `<option value="${t}" ${p.tipo === t ? "selected" : ""}>${r}</option>`).join("")}</select>
+        <input type="date" data-k="data" value="${esc(p.data || "")}" aria-label="Dia marcado ou prazo de entrega">
+        <input type="time" data-k="hora" value="${esc(p.hora || "")}" aria-label="Hora">
+        <button class="btn txt nao" type="button" data-tirar-passo aria-label="Tirar este passo">${ic("x")}</button>
+        ${atrasado ? `<span class="aviso-prazo">${ic("alerta")}o prazo passou</span>` : ""}</li>`; };
+    return `<section class="painel" data-tut="fase"><div class="cab"><h2>Fases</h2><span class="meta">${fora ? "vaga reprovada" : "clique numa fase para mudar"}</span></div>
+      <div class="fases-rolagem"><ol class="fases ${fora ? "fora" : ""}">${fases}</ol></div>
+      <div class="cab" style="margin:20px 0 8px"><h3>Passos do processo</h3><span class="meta">teste, case, entrevistas, com o dia marcado ou o prazo de entrega</span></div>
+      ${P.length ? `<ol class="passos-proc">${P.map(linha).join("")}</ol>` : `<p class="meta">Quando a empresa responder marcando uma entrevista ou mandando um teste, acrescente aqui. O que tem data entra em Hoje, na linha do tempo e nos próximos passos.</p>`}
+      <div class="botoes"><button class="btn" type="button" data-inserir="${P.length}">${ic("mais")}Acrescentar passo</button>${fora ? `<button class="btn txt" type="button" data-fase="nova">${ic("atualizar")}Trazer de volta para a triagem</button>` : `<button class="btn txt nao" type="button" data-desistir>${ic("x")}Desistir desta vaga</button>`}</div></section>`;
+  }
+  // o cartão da vaga, como na triagem: clicar abre o detalhe (e dá para desistir dali)
+  function cartaoVaga(v) {
+    return `<section class="painel cartao-mini" data-ver-vaga role="button" tabindex="0" aria-label="Ver a vaga ${esc(v.empresa)}">
+      <div class="topo"><div style="min-width:0"><span class="empresa">${esc(v.empresa)}</span><b class="cargo">${esc(v.cargo)}</b></div><div class="nota-mini"><b>${v.nota ?? "—"}</b><small>aderência</small></div></div>
+      <div class="chips"><span class="etiqueta ${v.contrato === "PJ" ? "pj" : ""}">${esc(v.contrato || "Contrato a confirmar")}</span>${v.modelo ? `<span class="etiqueta">${esc(v.modelo)}</span>` : ""}<span class="etiqueta">${v.faixa ? esc(v.faixa) : "Faixa não informada"}</span></div>
+      ${v.resumo ? `<p class="resumo-mini">${esc(v.resumo)}</p>` : ""}
+      ${lista(v.alertas).length ? `<p class="alerta-mini">${ic("cadeado")}${esc(v.alertas[0])}</p>` : ""}
+      <span class="ver">Ver a vaga ${ic("seta")}</span></section>`;
+  }
+  function verVaga(v) {
+    const dims = Object.entries(v.dimensoes || {});
+    VG.modal({ titulo: `${v.empresa} · ${v.cargo}`, classe: "largo", corpo: `<div class="chips" style="display:flex;flex-wrap:wrap;gap:8px"><span class="etiqueta">${esc(v.contrato || "Contrato a confirmar")}</span><span class="etiqueta">${esc(v.local || "Local a confirmar")}</span>${v.modelo ? `<span class="etiqueta">${esc(v.modelo)}</span>` : ""}<span class="etiqueta">${v.faixa ? esc(v.faixa) : "Faixa não informada"}</span><span class="etiqueta">aderência ${v.nota ?? "—"}</span></div>
+        <p class="frase" style="margin:14px 0 0">${esc(v.resumo || "Sem resumo.")}</p>
+        ${lista(v.alertas).length ? `<div class="alertas-box" style="margin-top:12px">${v.alertas.map((a) => `<p>${ic("cadeado")}<span>${esc(a)}</span></p>`).join("")}</div>` : ""}${observacoes(v)}
+        ${lista(v.motivos).length ? `<ul class="motivos">${v.motivos.map((m) => `<li>${ic("check")}<span>${esc(m)}</span></li>`).join("")}</ul>` : ""}
+        ${dims.length ? `<div class="dims" style="margin-top:14px">${dims.map(([key, n]) => `<div class="dim"><span>${esc(key)}</span><span class="t"><i class="${n < 50 ? "baixo" : ""}" style="width:${n}%"></i></span><b>${n}</b></div>`).join("")}</div>` : ""}
+        ${v.url ? `<a class="btn" style="margin-top:14px" href="${esc(v.url)}" target="_blank" rel="noopener noreferrer">${ic("externo")}Abrir a vaga original</a>` : ""}`,
+      botoes: v.estado === "reprovada" ? [{ rot: "Fechar", cls: "p" }] : [{ rot: "Desistir desta vaga", cls: "nao", acao: () => { setTimeout(() => desistir(v), 0); } }, { rot: "Fechar", cls: "p" }] });
+  }
+  function desistir(v) {
+    const el = VG.modal({ titulo: `Desistir de ${v.empresa}?`, corpo: `<p class="frase" style="margin:0 0 12px">A vaga vai para Candidaturas › Reprovadas, com o motivo, que ajusta as próximas notas. Dá para trazer de volta pelas fases.</p>
+      <div class="opcoes">${["Desisti", ...MOTIVOS_REPROVA].map((m) => `<button type="button" class="ficha" aria-pressed="false" data-m="${esc(m)}">${esc(m)}</button>`).join("")}</div>
+      <div class="campo-pedido" style="margin-top:12px"><input id="desistir-outro" placeholder="Outro motivo (opcional)" aria-label="Outro motivo" autocomplete="off"></div>`,
+      botoes: [{ rot: "Cancelar" }, { rot: "Desistir da vaga", cls: "nao", acao: (m) => {
+        const tags = [...m.querySelectorAll('[data-m][aria-pressed="true"]')].map((b) => b.dataset.m);
+        const outro = m.querySelector("#desistir-outro").value.trim(); if (outro) tags.push(outro);
+        reprovarVaga(v, tags.length ? tags : ["Desisti"]);
+      } }] });
+    el.querySelectorAll("[data-m]").forEach((b) => b.addEventListener("click", () => b.setAttribute("aria-pressed", b.getAttribute("aria-pressed") !== "true")));
+  }
+  function reprovarVaga(v, tags) {
+    v.estado = "reprovada"; v.motivos_reprovacao = tags;
+    (v.etapas = v.etapas || []).push({ data: hojeTxt(), tipo: "reprovada", nota: tags.join(" · "), manual: true });
+    db.pedidos.filter((p) => p.tipo === "kit" && p.onde?.id === v.id && p.status === "fila").forEach((p) => { p.status = "descartado"; });
+    salvar("pedidos", ""); salvar("vagas", `${v.empresa}: reprovada (${tags.join(", ")}).`); render(true);
+  }
+  function mudarFase(v, novo) {
+    const antes = v.estado;
+    if (novo === antes || (novo === "nova" && antes === "depois")) return;
+    v.estado = novo;
+    (v.etapas = v.etapas || []).push({ data: hojeTxt(), tipo: novo, nota: `Fase ajustada à mão: ${ESTADOS[antes]?.[1]} → ${ESTADOS[novo][1]}`, manual: true });
+    if (novo !== "reprovada") delete v.motivos_reprovacao;
+    // voltou para antes do kit: o pedido de kit que ainda não começou sai da fila
+    if (["nova", "depois", "reprovada"].includes(novo)) db.pedidos.filter((p) => p.tipo === "kit" && p.onde?.id === v.id && p.status === "fila").forEach((p) => { p.status = "descartado"; });
+    salvar("pedidos", "");
+    salvar("vagas", `${v.empresa}: fase agora é "${ESTADOS[novo][1]}".`);
+    render(true);
+    VG.aoMudarFase?.(v, novo);
+  }
+  function ligarProcesso(v) {
+    const P = () => (v.processo = passosProcesso(v));
+    const achar = (el) => P().find((p) => p.id === el.closest("[data-passo]").dataset.passo);
+    const gravarProcesso = (msg = "") => { sincronizarProxima(v); salvar("vagas", msg); };
+    app.querySelectorAll("[data-fase]").forEach((b) => b.addEventListener("click", () => mudarFase(v, b.dataset.fase)));
+    app.querySelectorAll("[data-inserir]").forEach((b) => b.addEventListener("click", () => {
+      const novo = { id: `s${Date.now().toString(36)}`, titulo: "", tipo: "entrevista", data: "", hora: "", feito: false };
+      P().splice(+b.dataset.inserir, 0, novo);
+      // a empresa respondeu: a vaga enviada passa a "em processo"
+      if (v.estado === "enviada") { v.estado = "processo"; (v.etapas = v.etapas || []).push({ data: hojeTxt(), tipo: "processo", nota: "A empresa respondeu", manual: true }); }
+      gravarProcesso(""); render(true);
+      app.querySelector(`[data-passo="${novo.id}"] .titulo-passo`)?.focus();
+    }));
+    app.querySelectorAll(".passo-proc [data-k]").forEach((el) => el.addEventListener("change", () => {
+      const p = achar(el); p[el.dataset.k] = el.value.trim();
+      gravarProcesso(el.dataset.k === "data" && el.value ? "Data salva. Entra em Hoje e nos próximos passos." : "Passo salvo");
+      if (el.dataset.k !== "titulo") render(true);
+    }));
+    app.querySelectorAll("[data-feito-passo]").forEach((b) => b.addEventListener("click", () => {
+      const p = achar(b); p.feito = !p.feito;
+      v.etapas = (v.etapas || []).filter((e) => e.passo !== p.id);
+      if (p.feito) {
+        v.etapas.push({ data: p.data && p.data <= hojeTxt() ? p.data : hojeTxt(), tipo: ETAPA_DO_PASSO[p.tipo] || "processo", nota: p.titulo || TIPOS_PASSO[p.tipo], passo: p.id });
+        if (["aprovada", "kit", "enviada"].includes(v.estado)) v.estado = "processo";
+      }
+      gravarProcesso(p.feito ? "Passo feito" : "Passo reaberto"); render(true);
+    }));
+    app.querySelectorAll("[data-tirar-passo]").forEach((b) => b.addEventListener("click", () => {
+      const p = achar(b); if (p.titulo && !confirm(`Tirar o passo "${p.titulo}"?`)) return;
+      v.processo = P().filter((x) => x.id !== p.id);
+      v.etapas = (v.etapas || []).filter((e) => e.passo !== p.id);
+      gravarProcesso("Passo tirado"); render(true);
+    }));
+    app.querySelector("[data-desistir]")?.addEventListener("click", () => desistir(v));
+    const cartao = app.querySelector("[data-ver-vaga]");
+    cartao?.addEventListener("click", () => verVaga(v));
+    cartao?.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); verVaga(v); } });
+  }
   function ligarVaga(id) {
     const v = vaga(id); if (!v) return;
+    ligarProcesso(v);
     app.querySelectorAll(".passo .check").forEach((b) => b.addEventListener("click", () => {
       const p = v.kit.passos.find((x) => String(x.id) === b.closest(".passo").dataset.p); p.feito = !p.feito; salvar("vagas", p.feito ? "Passo feito" : "Passo reaberto"); render(true);
     }));
@@ -635,19 +773,6 @@
     app.querySelectorAll("[data-copiar]").forEach((b) => b.addEventListener("click", () => copiar(b.dataset.copiar)));
     app.querySelectorAll("[data-copiar-de]").forEach((b) => b.addEventListener("click", () => copiar(app.querySelector(`textarea[data-resposta="${b.dataset.copiarDe}"]`).value)));
     app.querySelector("[data-copiar-carta]")?.addEventListener("click", () => copiar(carta.value));
-    document.getElementById("mudar-fase")?.addEventListener("change", (e) => {
-      const novo = e.target.value, antes = v.estado;
-      if (novo === antes) return;
-      v.estado = novo;
-      (v.etapas = v.etapas || []).push({ data: hojeTxt(), tipo: novo, nota: `Fase ajustada à mão: ${ESTADOS[antes]?.[1]} → ${ESTADOS[novo][1]}`, manual: true });
-      if (novo !== "reprovada") delete v.motivos_reprovacao;
-      // voltou para antes do kit: o pedido de kit que ainda não começou sai da fila
-      if (["nova", "depois", "reprovada"].includes(novo)) db.pedidos.filter((p) => p.tipo === "kit" && p.onde?.id === v.id && p.status === "fila").forEach((p) => { p.status = "descartado"; });
-      salvar("pedidos", "");
-      salvar("vagas", `${v.empresa}: fase agora é "${ESTADOS[novo][1]}".`);
-      render(true);
-      VG.aoMudarFase?.(v, novo);
-    });
     document.getElementById("marcar-enviada")?.addEventListener("click", () => { v.estado = "enviada"; v.etapas.push({ data: hojeTxt(), tipo: "enviada", nota: "" }); salvar("vagas", `${v.empresa}: enviada. O acompanhamento começou.`); render(true); VG.aoMudarFase?.(v, "enviada"); });
     document.getElementById("apagar-exemplo")?.addEventListener("click", () => VG.apagarExemplo());
   }
@@ -666,12 +791,13 @@
 
   /* ---------- tela: Candidaturas ---------- */
   let abaCand = null;
-  function telaCandidaturas() {
+  function telaCandidaturas(arg) {
     const grupos = {
-      ativas: ["Ativas", (v) => ATIVAS.includes(v.estado)], triar: ["Para triar", (v) => v.estado === "nova" || v.estado === "depois"],
+      ativas: ["Ativas", (v) => ATIVAS.includes(v.estado)], triar: ["Para triar", (v) => v.estado === "nova"], depois: ["Para depois", (v) => v.estado === "depois"],
       encerradas: ["Encerradas", (v) => v.estado === "encerrada"], reprovadas: ["Reprovadas", (v) => v.estado === "reprovada"], todas: ["Todas", () => true],
     };
-    if (!abaCand) abaCand = db.vagas.some(grupos.ativas[1]) || !db.vagas.some(grupos.triar[1]) ? "ativas" : "triar";
+    if (arg && grupos[arg]) abaCand = arg;
+    if (!abaCand || !grupos[abaCand]) abaCand = db.vagas.some(grupos.ativas[1]) || !db.vagas.some(grupos.triar[1]) ? "ativas" : "triar";
     const L = db.vagas.filter(grupos[abaCand][1]).sort((a, b) => String(ultimaEtapa(b)?.data || b.captada).localeCompare(String(ultimaEtapa(a)?.data || a.captada)));
     const ativas = db.vagas.filter((v) => grupos.ativas[1](v) && (v.etapas || []).length);
     const proxAcao = (v) => v.proxima ? `${v.proxima.texto} · ${dm(v.proxima.data)}` : v.estado === "kit" ? "Enviar o kit" : v.estado === "aprovada" ? "Rodar a fila (kit)" : v.estado === "nova" ? "Triar" : v.estado === "enviada" ? (dias(ultimaEtapa(v)?.data) >= 10 ? "Cobrar retorno" : "Aguardar") : "—";
@@ -682,13 +808,13 @@
         <section class="painel">
           <div class="abas" role="tablist">${Object.entries(grupos).map(([key, [r, f]]) => `<button role="tab" type="button" aria-selected="${key === abaCand}" class="${key === abaCand ? "on" : ""}" data-aba="${key}">${r}<b>${db.vagas.filter(f).length}</b></button>`).join("")}</div>
           ${L.length ? `<table class="tabela"><thead><tr><th>Empresa e cargo</th><th>Estado</th><th class="esconde-cel">Última movimentação</th><th class="n esconde-cel">Dias</th><th class="esconde-cel">Próxima ação</th><th class="n">Aderência</th></tr></thead><tbody>
-          ${L.map((v) => { const u = ultimaEtapa(v); return `<tr data-href="#/vaga/${v.id}"><td><span class="empresa">${esc(v.empresa)}</span> ${seloExemplo(v)}<span class="meta" style="display:block">${esc(v.cargo)}</span></td><td>${pilula(v.estado)}</td><td class="esconde-cel">${u ? `${esc(ETAPA[u.tipo] || u.tipo)} · ${dm(u.data)}` : `Captada · ${dm(v.captada)}`}</td><td class="n esconde-cel">${dias(u ? u.data : v.captada)}</td><td class="esconde-cel">${esc(proxAcao(v))}</td><td class="n" data-rot="aderência"><b>${v.nota ?? "—"}</b></td></tr>`; }).join("")}
+          ${L.map((v) => { const u = ultimaEtapa(v); return `<tr data-href="#/vaga/${v.id}"><td><span class="quem com-anel">${anel(v)}<span class="quem-txt"><span class="empresa">${esc(v.empresa)}</span> ${seloExemplo(v)}<span class="meta" style="display:block">${esc(v.cargo)}</span></span></span></td><td>${pilula(v.estado)}</td><td class="esconde-cel">${u ? `${esc(ETAPA[u.tipo] || u.tipo)} · ${dm(u.data)}` : `Captada · ${dm(v.captada)}`}</td><td class="n esconde-cel">${dias(u ? u.data : v.captada)}</td><td class="esconde-cel">${esc(proxAcao(v))}</td><td class="n" data-rot="aderência"><b>${v.nota ?? "—"}</b></td></tr>`; }).join("")}
           </tbody></table>` : `<div class="vazio">Nada nesta aba.</div>`}
         </section>
       </div></section>`;
   }
   function ligarCandidaturas() {
-    app.querySelectorAll("[data-aba]").forEach((b) => b.addEventListener("click", () => { abaCand = b.dataset.aba; render(true); }));
+    app.querySelectorAll("[data-aba]").forEach((b) => b.addEventListener("click", () => { abaCand = b.dataset.aba; history.replaceState(null, "", `#/candidaturas/${abaCand}`); render(true); }));
     app.querySelectorAll("tr[data-href]").forEach((tr) => tr.addEventListener("click", () => (location.hash = tr.dataset.href)));
   }
 
@@ -727,7 +853,7 @@
     });
   }
 
-  /* ---------- tela: Base ---------- */
+  /* ---------- tela: Perfil (a rota continua #/base) ---------- */
   let abaBase = "perfil";
   function telaBase(arg) {
     if (arg && ["perfil", "enriquecer", "preferencias", "feitos", "sigilo", "documentos"].includes(arg)) abaBase = arg;
@@ -735,16 +861,15 @@
     if (!Array.isArray(R.setores) && R.setor) R.setores = [R.setor];
     if (!Array.isArray(R.senioridades) && R.senioridade) R.senioridades = [R.senioridade];
     const campo = (col, k, rot, dica = "") => `<dt>${rot}</dt><dd><input class="inline" data-col="${col}" data-k="${k}" value="${esc(Array.isArray(db[col][k]) ? db[col][k].join(", ") : db[col][k] ?? "")}" aria-label="${rot}" placeholder="${esc(dica)}"></dd>`;
-    const abas = { perfil: "Perfil", enriquecer: "Enriquecer", preferencias: "Preferências", feitos: "Feitos", sigilo: "Sigilo", documentos: "Documentos" };
+    const abas = { perfil: "Sobre você", enriquecer: "Enriquecer", preferencias: "Preferências", feitos: "Feitos", sigilo: "Sigilo", documentos: "Documentos" };
     let corpo = "";
     if (abaBase === "perfil") corpo = `${P.resumo ? `<div class="destaque-pos"><h3>Resumo</h3><p class="frase">${esc(P.resumo)}</p>${campoPedido({ tipo: "base", rotulo: "Resumo" }, "Ex.: uma frase mais curta para o título do LinkedIn", { col: "perfil", id: null, campo: ["resumo"] })}${blocoVersao({ col: "perfil", id: null, campo: ["resumo"] })}</div>` : ""}
       <dl class="dl">${campo("perfil", "nome", "Nome")}${campo("perfil", "email", "E-mail para candidaturas")}${campo("perfil", "telefone", "Telefone")}${campo("perfil", "cidade", "Cidade")}${campo("perfil", "linkedin", "LinkedIn")}${campo("perfil", "cargo_atual", "Cargo atual")}${campo("perfil", "formacao", "Formação")}${campo("perfil", "idiomas", "Idiomas", "separe por vírgula")}${campo("perfil", "resumo", "Resumo")}</dl>
       ${lista(P.cursos).length || lista(P.ferramentas).length ? `<h3 style="margin-top:22px">Cursos e ferramentas</h3><ul class="lista-simples" style="margin-top:8px">${[...lista(P.cursos), ...lista(P.ferramentas)].map((x) => `<li>${esc(typeof x === "string" ? x : x.nome || JSON.stringify(x))}</li>`).join("")}</ul>` : ""}
       ${lista(P.trajetoria).length ? `<h3 style="margin-top:22px">Trajetória</h3><div class="lista-kv" style="margin-top:8px">${P.trajetoria.map((t) => `<div><span>${esc(t.periodo || "")}</span><b style="flex:1;text-align:right">${esc([t.cargo, t.empresa].filter(Boolean).join(" · "))}</b></div>`).join("")}</div>` : ""}`;
     if (abaBase === "preferencias") corpo = `<dl class="dl">${campo("preferencias", "setores", "Áreas", "separe por vírgula")}${campo("preferencias", "cargos", "Cargos", "separe por vírgula")}${campo("preferencias", "senioridades", "Senioridades", "separe por vírgula")}${campo("preferencias", "contratos", "Contratos que aceita", "separe por vírgula")}${campo("preferencias", "contrato_preferido", "Contrato preferido")}</dl>
-      <h3 style="margin-top:22px">Onde você topa trabalhar</h3><p class="meta" style="margin:4px 0 10px">Remoto vale qualquer cidade do Brasil. Híbrido e presencial, só nas cidades de cada um.</p>
-      <div class="modos">${["Remoto", "Híbrido", "Presencial"].map((m) => { const on = lista(R.modelos).includes(m); return `<div class="modo ${on ? "on" : ""}"><label class="interruptor" style="margin:0"><input type="checkbox" data-modo-base="${m}" ${on ? "checked" : ""}><span><b>${m}</b></span></label>${on && m !== "Remoto" ? `<input class="inline" data-cid-base="${m}" value="${esc(lista(R.locais?.[m]).join(", "))}" placeholder="Cidades, separadas por vírgula" aria-label="Cidades para ${m.toLowerCase()}">` : on ? `<p class="meta">Qualquer cidade do Brasil.</p>` : ""}</div>`; }).join("")}</div>
-      <label class="interruptor"><input type="checkbox" id="muda-cidade" ${R.muda_cidade ? "checked" : ""}><span>Aceito mudar de cidade por uma boa vaga</span></label>
+      <h3 style="margin-top:22px">Onde você topa trabalhar</h3><p class="meta" style="margin:4px 0 10px">É onde a varredura busca. Remoto vale qualquer cidade do Brasil; híbrido e presencial, só nas cidades de cada um.</p>
+      ${editorLocais()}
       <dl class="dl" style="margin-top:16px">${campo("preferencias", "faixa_minima", "Faixa mínima")}${campo("preferencias", "empresas_tipo", "Tipos de empresa", "separe por vírgula")}${campo("preferencias", "evitar", "Evitar", "separe por vírgula")}</dl>
       <h3 style="margin-top:22px">Dimensões da nota</h3><p class="meta" style="margin:4px 0 10px">O Claude dá a nota de aderência por estas dimensões. Peso 2 conta em dobro.</p>
       <div class="dims-edit">${lista(R.dimensoes).map((d, i) => `<div><input data-dim="${i}" value="${esc(d.nome)}" aria-label="Dimensão ${i + 1}"><select data-peso="${i}" aria-label="Peso">${[1, 2].map((n) => `<option value="${n}" ${+d.peso === n ? "selected" : ""}>peso ${n}</option>`).join("")}</select><button class="btn txt nao" type="button" data-tirar-dim="${i}" aria-label="Tirar dimensão">${ic("x")}</button></div>`).join("")}<button class="btn" type="button" id="nova-dim">${ic("mais")}Dimensão</button></div>`;
@@ -778,9 +903,9 @@
       <div id="docs-lista" class="lista-kv" style="margin-top:14px"><p class="meta">Carregando…</p></div>
       <label class="soltar" style="margin-top:14px"><input type="file" id="doc-arquivo" accept=".pdf,.doc,.docx,.txt,.md,.rtf,.odt" multiple hidden><span>${ic("arquivo")}Escolher arquivos (PDF, Word ou texto)</span></label>
       <button class="btn txt" type="button" id="abrir-pasta" style="margin-top:10px">${ic("pasta")}Abrir a pasta do Vagabs</button>`;
-    return `<section class="tela entra"><div class="titulo"><div><h1>Base</h1><p class="frase">Uma fonte só: alimenta as notas, as respostas e as cartas.</p></div></div>
+    return `<section class="tela entra"><div class="titulo"><div><h1>Perfil</h1><p class="frase">Uma fonte só: alimenta as notas, as respostas e as cartas.</p></div></div>
       <div class="grade"><section class="painel"><div class="abas" role="tablist">${Object.entries(abas).map(([key, r]) => `<button role="tab" type="button" aria-selected="${key === abaBase}" class="${key === abaBase ? "on" : ""}" data-aba="${key}">${r}</button>`).join("")}</div>${corpo}</section>
-      <div class="coluna"><section class="painel"><div class="cab"><h2>Pedir ao Claude</h2></div>${campoPedido({ tipo: "base", rotulo: "Base" }, "Ex.: reescreve meu resumo para vagas de gestão")}</section>
+      <div class="coluna"><section class="painel"><div class="cab"><h2>Pedir ao Claude</h2></div>${campoPedido({ tipo: "base", rotulo: "Perfil" }, "Ex.: reescreve meu resumo para vagas de gestão")}</section>
         <section class="painel"><div class="cab"><h2>Refazer o setup</h2></div><p class="meta">Passa de novo pelas telas iniciais, com o que você já preencheu. Nada se perde.</p><a class="btn" style="margin-top:12px" href="#/setup">Refazer o setup</a></section></div></div></section>`;
   }
   function ligarBase() {
@@ -794,16 +919,7 @@
       if (i.dataset.k === "senioridades") db.preferencias.senioridade = db.preferencias.senioridades.join(", ");
       salvar(i.dataset.col);
     }));
-    // onde trabalhar: liga/desliga formato e as cidades de cada um
-    const R0 = db.preferencias;
-    const juntarCidades = () => { R0.cidades = [...new Set(lista(R0.modelos).filter((m) => m !== "Remoto").flatMap((m) => lista(R0.locais?.[m])))]; };
-    app.querySelectorAll("[data-modo-base]").forEach((i) => i.addEventListener("change", () => {
-      const m = i.dataset.modoBase; R0.modelos = i.checked ? [...new Set([...lista(R0.modelos), m])] : lista(R0.modelos).filter((x) => x !== m);
-      R0.locais = R0.locais || {}; if (i.checked && m !== "Remoto" && !lista(R0.locais[m]).length) R0.locais[m] = lista(R0.cidades).slice(0, 1);
-      juntarCidades(); salvar("preferencias"); render(true);
-    }));
-    app.querySelectorAll("[data-cid-base]").forEach((i) => i.addEventListener("change", () => { R0.locais = R0.locais || {}; R0.locais[i.dataset.cidBase] = i.value.split(",").map((x) => x.trim()).filter(Boolean); juntarCidades(); salvar("preferencias"); }));
-    document.getElementById("muda-cidade")?.addEventListener("change", (e) => { R0.muda_cidade = e.target.checked; salvar("preferencias"); });
+    ligarLocais(app);
     document.getElementById("sigilo-ativo")?.addEventListener("change", (e) => { db.sigilo.ativo = e.target.checked; salvar("sigilo", e.target.checked ? "Sigilo ligado" : "Sigilo desligado"); });
     const R = db.preferencias;
     app.querySelectorAll("[data-dim]").forEach((i) => i.addEventListener("change", () => { R.dimensoes[+i.dataset.dim].nome = i.value.trim(); salvar("preferencias"); }));
@@ -822,7 +938,39 @@
     document.getElementById("abrir-pasta")?.addEventListener("click", () => api("pasta/abrir", { metodo: "POST" }));
   }
 
-  /* ---------- Base › Enriquecer: material solto para o Claude organizar ---------- */
+  /* ---------- onde buscar: formatos e cidades (Perfil › Preferências e Configurações) ---------- */
+  function editorLocais() {
+    const R = db.preferencias;
+    return `<div class="modos" data-locais>${["Remoto", "Híbrido", "Presencial"].map((m) => { const on = lista(R.modelos).includes(m), cids = lista(R.locais?.[m]);
+      return `<div class="modo ${on ? "on" : ""}"><label class="interruptor" style="margin:0"><input type="checkbox" data-modo-loc="${m}" ${on ? "checked" : ""}><span><b>${m}</b></span></label>
+        ${on && m !== "Remoto" ? `<div class="cidades">${cids.map((c) => `<span class="chip-cidade">${esc(c)}<button type="button" data-tirar-cid="${esc(m)}" data-cid="${esc(c)}" aria-label="Tirar ${esc(c)} de ${m.toLowerCase()}">${ic("x")}</button></span>`).join("") || `<span class="meta">Nenhuma cidade. Acrescente uma.</span>`}</div>
+          <form class="outro" data-nova-cid="${m}"><input name="c" placeholder="Acrescentar cidade" aria-label="Acrescentar cidade para ${m.toLowerCase()}" autocomplete="off"><button class="btn" type="submit" aria-label="Acrescentar">${ic("mais")}</button></form>` : on ? `<p class="meta">Qualquer cidade do Brasil.</p>` : `<p class="meta">Desligado.</p>`}</div>`; }).join("")}</div>
+      <label class="interruptor"><input type="checkbox" data-muda-loc ${R.muda_cidade ? "checked" : ""}><span>Aceito mudar de cidade por uma boa vaga</span></label>`;
+  }
+  function ligarLocais(raiz) {
+    const R = db.preferencias;
+    const gravarLocais = (msg) => { R.cidades = [...new Set(lista(R.modelos).filter((m) => m !== "Remoto").flatMap((m) => lista(R.locais?.[m])))]; salvar("preferencias", msg); render(true); };
+    raiz.querySelectorAll("[data-modo-loc]").forEach((i) => i.addEventListener("change", () => {
+      const m = i.dataset.modoLoc; R.modelos = i.checked ? [...new Set([...lista(R.modelos), m])] : lista(R.modelos).filter((x) => x !== m);
+      R.locais = R.locais || {}; if (i.checked && m !== "Remoto" && !lista(R.locais[m]).length) R.locais[m] = lista(R.cidades).slice(0, 1);
+      gravarLocais(i.checked ? `${m} ligado` : `${m} desligado`);
+    }));
+    raiz.querySelectorAll("[data-tirar-cid]").forEach((b) => b.addEventListener("click", () => {
+      const m = b.dataset.tirarCid; R.locais = R.locais || {}; R.locais[m] = lista(R.locais[m]).filter((c) => c !== b.dataset.cid);
+      gravarLocais(`${b.dataset.cid} saiu de ${m.toLowerCase()}`);
+    }));
+    raiz.querySelectorAll("form[data-nova-cid]").forEach((f) => f.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const m = f.dataset.novaCid, novas = f.c.value.split(",").map((s) => s.trim()).filter(Boolean);
+      if (!novas.length) return f.c.focus();
+      R.locais = R.locais || {}; const atuais = lista(R.locais[m]);
+      R.locais[m] = [...atuais, ...novas.filter((c) => !atuais.some((x) => semAcento(x) === semAcento(c)))];
+      gravarLocais(`${novas.join(", ")} em ${m.toLowerCase()}`);
+    }));
+    raiz.querySelector("[data-muda-loc]")?.addEventListener("change", (e) => { R.muda_cidade = e.target.checked; gravarLocais(e.target.checked ? "Aceita mudar de cidade" : "Sem mudar de cidade"); });
+  }
+
+  /* ---------- Perfil › Enriquecer: material solto para o Claude organizar ---------- */
   const RASC_ENR = "vagabs-enriquecer";
   function rascunhoEnriquecer() { try { const r = JSON.parse(localStorage.getItem(RASC_ENR) || "null"); if (r) return { texto: r.texto || "", arquivos: r.arquivos || [] }; } catch {} return { texto: "", arquivos: [] }; }
   const guardarEnriquecer = (r) => { try { localStorage.setItem(RASC_ENR, JSON.stringify(r)); } catch {} };
@@ -851,7 +999,7 @@
     });
   }
 
-  /* ---------- tela: Pedidos (a fila) ---------- */
+  /* ---------- tela: Fila de execução (a rota continua #/pedidos) ---------- */
   function telaPedidos() {
     db.pedidos.forEach((p) => { if (p.status === "respondido" || p.status === "erro") p.lido = true; });
     const n = (s) => db.pedidos.filter((p) => p.status === s).length;
@@ -861,7 +1009,7 @@
     const ordem = { processando: 0, erro: 1, revisao: 2, respondido: 3, aplicado: 4, descartado: 5 };
     const resto = db.pedidos.filter((p) => p.status !== "fila").sort((a, b) => (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9) || String(b.criado || "").localeCompare(String(a.criado || "")));
     const ex = VG.estado.execucao;
-    return `<section class="tela entra"><div class="titulo"><div><h1>Pedidos<small>${[[fila.length, "na fila"], [adiados.length, "para depois"], [n("processando"), "em andamento"], [n("revisao"), "para revisar"], [n("erro"), "sem terminar"]].filter(([q]) => q).map(([q, r]) => `${q} ${r}`).join(" · ") || "nada pendente"}</small></h1><p class="frase">Todo pedido ao Claude, de qualquer tela, entra nesta fila e espera. Ela só roda quando você clica em <b>Rodar fila</b>, e o Claude faz um pedido de cada vez.</p></div></div>
+    return `<section class="tela entra"><div class="titulo"><div><h1>Fila de execução<small>${[[fila.length, "na fila"], [adiados.length, "para depois"], [n("processando"), "em andamento"], [n("revisao"), "para revisar"], [n("erro"), "sem terminar"]].filter(([q]) => q).map(([q, r]) => `${q} ${r}`).join(" · ") || "nada pendente"}</small></h1><p class="frase">Todo pedido ao Claude, de qualquer tela, entra nesta fila e espera. Ela só roda quando você clica em <b>Rodar fila</b>, e o Claude faz um pedido de cada vez.</p></div></div>
       <div class="grade"><div class="coluna">
         <section class="painel" data-tut="fila"><div class="cab"><h2>Na fila</h2><span class="meta">roda na ordem, de cima para baixo · arraste para mudar</span></div>
           <div class="zona" data-zona="agora">${fila.map((p, i) => itemPedido(p, { controles: true, pos: i, total: fila.length })).join("") || `<div class="vazio">${adiados.length ? "Nada para rodar agora. Arraste um pedido de \"Para depois\" para cá." : "A fila está vazia."}</div>`}</div></section>
@@ -993,12 +1141,12 @@
 
   /* ---------- roteador ---------- */
   let ultimaRota = "";
-  const TITULOS = { hoje: "Hoje", triagem: "Triagem", candidaturas: "Candidaturas", empresas: "Empresas", base: "Base", pedidos: "Pedidos", varreduras: "Varreduras" };
+  const TITULOS = { hoje: "Hoje", triagem: "Triagem", candidaturas: "Candidaturas", empresas: "Empresas", base: "Perfil", pedidos: "Fila", varreduras: "Varreduras" };
   function rotaAtual() { const [, rota = "hoje", arg] = location.hash.replace(/^#\/?/, "#/").split("/"); return [rota || "hoje", arg]; }
   function render(semEntrada = false) {
     const [rota, arg] = rotaAtual();
     if (rota !== "setup" && !VG.estado.setup) { location.hash = "#/setup"; return; }
-    const telas = { hoje: telaHoje, triagem: () => telaTriagem(arg), candidaturas: telaCandidaturas, vaga: () => telaVaga(arg), empresas: telaEmpresas, base: () => telaBase(arg), pedidos: telaPedidos, varreduras: telaVarreduras, ...VG.telas };
+    const telas = { hoje: telaHoje, triagem: () => telaTriagem(arg), candidaturas: () => telaCandidaturas(arg), vaga: () => telaVaga(arg), empresas: telaEmpresas, base: () => telaBase(arg), pedidos: telaPedidos, varreduras: telaVarreduras, ...VG.telas };
     const f = telas[rota] || telaHoje;
     document.body.classList.toggle("modo-setup", rota === "setup");
     const navRota = rota === "vaga" ? "candidaturas" : rota === "varreduras" ? "" : rota;
@@ -1036,5 +1184,5 @@
   });
   window.addEventListener("hashchange", () => { render(); window.scrollTo({ top: 0 }); });
 
-  Object.assign(VG, { esc, ic, api, carregar, salvar, toast, render, rotaAtual, novoPedido, itemPedido, campoPedido, ligarPedidos, pilula, seloExemplo, dm, dias, hojeTxt, agoraTxt, plural, lista, contagens, ESTADOS, COLECOES, desenharNav, p2 });
+  Object.assign(VG, { esc, ic, api, carregar, salvar, toast, render, rotaAtual, novoPedido, itemPedido, campoPedido, ligarPedidos, pilula, seloExemplo, dm, dias, editorLocais, ligarLocais, hojeTxt, agoraTxt, plural, lista, contagens, ESTADOS, COLECOES, desenharNav, p2 });
 })();

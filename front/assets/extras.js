@@ -40,21 +40,25 @@
     const dias = (v) => VG.dias((v.etapas || []).filter((e) => e.tipo === "enviada").at(-1)?.data || v.captada);
     const enviadas = V.filter((v) => v.estado === "enviada"), paradas = enviadas.filter((v) => dias(v) >= 10);
     const emProcesso = V.filter((v) => ["processo", "proposta"].includes(v.estado));
-    const agenda = V.filter((v) => v.proxima && VG.dias(v.proxima.data) <= 0 && VG.dias(v.proxima.data) >= -7);
+    const agenda = V.filter((v) => v.proxima && !v.proxima.passo && VG.dias(v.proxima.data) <= 0 && VG.dias(v.proxima.data) >= -7);
+    // passos do processo com data (entrevista, teste, case): os dos próximos 7 dias e os de prazo vencido vêm primeiro
+    const marcados = V.filter((v) => ["enviada", "processo", "proposta"].includes(v.estado)).flatMap((v) => (v.processo || []).filter((p) => !p.feito && p.data && VG.dias(p.data) >= -7).map((p) => ({ v, p })))
+      .sort((a, b) => `${a.p.data} ${a.p.hora || ""}`.localeCompare(`${b.p.data} ${b.p.hora || ""}`));
     const novas = (db.vagas || []).filter((v) => v.estado === "nova");
     const ult = db.config?.varredura?.ultima ? new Date(db.config.varredura.ultima).getTime() : 0;
     const semConf = (db.feitos || []).filter((f) => !f.confirmado);
     const s = [];
+    if (marcados.length) { const venc = marcados.filter((x) => VG.dias(x.p.data) > 0).length; s.push({ t: venc ? "Atenção aos prazos do processo" : "Prepare-se para o que está marcado", d: marcados.map(({ v, p }) => `${p.titulo || "Passo"} · ${v.empresa}, ${VG.dias(p.data) > 0 ? `prazo passou (${VG.dm(p.data)})` : VG.dias(p.data) === 0 ? `hoje${p.hora ? ` às ${p.hora}` : ""}` : `${VG.dm(p.data)}${p.hora ? ` às ${p.hora}` : ""}`}`).join("; ") + ". Peça ao Claude um roteiro ou ajuda com o teste na página da vaga.", n: marcados.length, acao: ["Abrir", `#/vaga/${marcados[0].v.id}`] }); }
     if (naFila.length) s.push({ t: "Rode a fila do Claude", d: kitsFila.length
       ? `${VG.plural(kitsFila.length, "kit de candidatura espera", "kits de candidatura esperam")} o Claude${naFila.length > kitsFila.length ? `, mais ${VG.plural(naFila.length - kitsFila.length, "pedido", "pedidos")}` : ""}. Sem rodar a fila, as vagas aprovadas não ganham kit.`
       : `${VG.plural(naFila.length, "pedido espera", "pedidos esperam")} o Claude. Ele faz um de cada vez quando você roda a fila.`, n: naFila.length, acao: ["Rodar fila", "fila"] });
-    if (revisar.length || erros.length) s.push({ t: "Revise o que o Claude devolveu", d: [revisar.length && `${VG.plural(revisar.length, "versão espera", "versões esperam")} você aprovar ou editar`, erros.length && `${VG.plural(erros.length, "pedido não terminou", "pedidos não terminaram")}: ponha de novo na fila`].filter(Boolean).join("; ") + ".", n: revisar.length + erros.length, acao: ["Ver pedidos", "#/pedidos"] });
+    if (revisar.length || erros.length) s.push({ t: "Revise o que o Claude devolveu", d: [revisar.length && `${VG.plural(revisar.length, "versão espera", "versões esperam")} você aprovar ou editar`, erros.length && `${VG.plural(erros.length, "pedido não terminou", "pedidos não terminaram")}: ponha de novo na fila`].filter(Boolean).join("; ") + ".", n: revisar.length + erros.length, acao: ["Abrir a fila", "#/pedidos"] });
     if (kits.length) s.push({ t: "Envie as candidaturas com kit pronto", d: `Abra o kit, siga o passo a passo, copie as respostas e envie no site da vaga. Depois clique em "Marquei como enviada". ${kits.slice(0, 3).map((v) => v.empresa).join(", ")}${kits.length > 3 ? "…" : ""}.`, n: kits.length, acao: ["Abrir o primeiro kit", `#/vaga/${kits[0].id}`] });
     if (agenda.length) s.push({ t: "Prepare-se para o que está marcado", d: agenda.map((v) => `${v.proxima.texto} · ${v.empresa}, ${VG.dm(v.proxima.data)}`).join("; ") + ". Peça ao Claude um roteiro na página da vaga.", n: agenda.length, acao: ["Abrir", `#/vaga/${agenda[0].id}`] });
-    if (enviadas.length || emProcesso.length) s.push({ t: "Atualize as respostas das empresas", d: `Quando uma empresa responder (triagem, teste, entrevista, recusa, proposta), mude a fase na página da vaga${db.config?.email?.modo === "gmail" ? " (o Gmail ajuda na varredura)" : ""}.${paradas.length ? ` ${VG.plural(paradas.length, "candidatura está", "candidaturas estão")} há 10 dias ou mais sem resposta: vale cobrar.` : ""}`, n: enviadas.length + emProcesso.length, acao: ["Ver candidaturas", "#/candidaturas"] });
+    if (enviadas.length || emProcesso.length) s.push({ t: "Atualize as respostas das empresas", d: `Quando uma empresa responder (triagem, teste, entrevista, recusa, proposta), registre na página da vaga: clique na fase e acrescente os passos (teste, entrevista) com a data${db.config?.email?.modo === "gmail" || db.config?.email?.modo === "arquivo" ? " (o e-mail ajuda na varredura)" : ""}.${paradas.length ? ` ${VG.plural(paradas.length, "candidatura está", "candidaturas estão")} há 10 dias ou mais sem resposta: vale cobrar.` : ""}`, n: enviadas.length + emProcesso.length, acao: ["Ver candidaturas", "#/candidaturas"] });
     if (novas.length) s.push({ t: "Trie as vagas novas", d: `Aprove o que vale um kit e reprove com motivo o que não serve. As aprovadas entram na fila.`, n: novas.length, acao: ["Ir para a triagem", "#/triagem"] });
     if (est.modo !== "servidor" && Date.now() - ult > 24 * 3600 * 1000) s.push({ t: "Busque vagas novas", d: ult ? `A última varredura foi há mais de um dia.` : "Você ainda não rodou nenhuma varredura.", n: 0, acao: ["Rodar varredura", "varredura"] });
-    if (semConf.length || (db.empresas || []).filter((e) => e.prioridade !== "bloqueio").length < 5) s.push({ t: "Fortaleça a sua base", d: [semConf.length && `${VG.plural(semConf.length, "feito espera", "feitos esperam")} confirmação`, (db.empresas || []).length < 5 && "a lista de empresas-alvo está curta"].filter(Boolean).join("; ") + ". Em Base › Enriquecer, jogue o que lembrar e o Claude organiza.", n: semConf.length, acao: ["Abrir a Base", "#/base/feitos"] });
+    if (semConf.length || (db.empresas || []).filter((e) => e.prioridade !== "bloqueio").length < 5) s.push({ t: "Fortaleça o seu perfil", d: [semConf.length && `${VG.plural(semConf.length, "feito espera", "feitos esperam")} confirmação`, (db.empresas || []).length < 5 && "a lista de empresas-alvo está curta"].filter(Boolean).join("; ") + ". Em Perfil › Enriquecer, jogue o que lembrar e o Claude organiza.", n: semConf.length, acao: ["Abrir o Perfil", "#/base/feitos"] });
     return s;
   }
   function desenharPassos() {
@@ -241,7 +245,7 @@
             <div><span>Uso da janela de 5 h</span><b>${pct(janela)}</b></div>
             <div><span>Uso da semana</span><b>${pct(semana)}</b></div></div>
             ${est.limite ? `<p class="aviso-linha" style="margin-top:12px">${ic("alerta")}O plano bateu no limite${est.limite.ate ? `; volta por volta de ${new Date(est.limite.ate).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : ""}.</p>` : ""}
-            <p class="meta" style="margin-top:12px">O uso aparece depois que o Claude trabalha pela primeira vez nesta sessão. Pedidos longos funcionam melhor pela fila (tela Pedidos).</p></section>
+            <p class="meta" style="margin-top:12px">O uso aparece depois que o Claude trabalha pela primeira vez nesta sessão. Pedidos longos funcionam melhor pela fila (tela Fila).</p></section>
           ${est.modo === "servidor" ? "" : `<details class="painel terminal-avancado" ${!pronto && c ? "open" : ""}><summary><b>Terminal (avançado)</b><span class="meta">login, instalação e o Claude Code puro</span></summary>
             <div class="botoes" style="margin-top:12px">${c && !c.instalado ? `<button class="btn p" type="button" data-cmd="instalar">${ic("play")}Instalar o Claude Code</button>` : ""}${c?.instalado && !c.logado ? `<button class="btn p" type="button" data-cmd="login">${ic("play")}Fazer login</button>` : ""}<button class="btn" type="button" data-cmd="claude">${ic("play")}Abrir o Claude aqui</button><button class="btn txt" type="button" data-reiniciar>${ic("atualizar")}Reiniciar</button></div>
             <div class="console" data-console style="margin-top:12px"></div></details>`}
@@ -332,6 +336,7 @@
           </div>
           <div class="opcoes" style="margin-top:12px">${[["gupy", "Gupy"], ["linkedin", "LinkedIn público"], ["empresas", "Sites das empresas"]].map(([k, r]) => `<button type="button" class="ficha" data-fonte="${k}" aria-pressed="${F[k] !== false}">${r}</button>`).join("")}</div>
           <button class="btn p" type="button" id="salvar-busca" style="margin-top:14px">${ic("check")}Salvar a busca</button></section>
+        <section class="painel"><div class="cab"><h2>Onde buscar</h2><a class="meta" href="#/base/preferencias">também em Perfil › Preferências</a></div><p class="meta" style="margin:0 0 10px">Remoto vale qualquer cidade do Brasil; híbrido e presencial, só nas cidades de cada um. Mudou aqui, a triagem é reconferida.</p>${VG.editorLocais()}</section>
         <section class="painel"><div class="cab"><h2>E-mail</h2></div>
           ${srv ? `<div class="opcoes"><button type="button" class="ficha" data-email="manual" aria-pressed="${C.email?.modo !== "arquivo"}">À mão</button><button type="button" class="ficha" data-email="arquivo" aria-pressed="${C.email?.modo === "arquivo"}">E-mail pessoal (no servidor)</button></div>
           <p class="meta" style="margin-top:10px">No servidor, o e-mail pessoal é lido antes de cada varredura, só para ler os retornos de processos. Nada é enviado.</p>` : `<div class="opcoes"><button type="button" class="ficha" data-email="manual" aria-pressed="${C.email?.modo !== "gmail"}">À mão</button><button type="button" class="ficha" data-email="gmail" aria-pressed="${C.email?.modo === "gmail"}">Pelo Gmail (só leitura)</button></div>
@@ -362,6 +367,7 @@
       v.corte = +document.querySelector("[data-corte]").value;
       C.varredura = v; VG.salvar("config", "Busca salva");
     });
+    VG.ligarLocais(document);
     document.querySelectorAll("[data-email]").forEach((b) => b.addEventListener("click", () => { C.email = { ...C.email, modo: b.dataset.email }; VG.salvar("config", { gmail: "E-mail pelo Gmail", arquivo: "E-mail pessoal ligado" }[b.dataset.email] || "E-mail à mão"); VG.render(true); }));
     const dias = new Set(C.servidor?.agenda?.dias || []);
     document.querySelectorAll("[data-dia]").forEach((b) => b.addEventListener("click", () => { const n = +b.dataset.dia; if (dias.has(n)) dias.delete(n); else dias.add(n); b.setAttribute("aria-pressed", dias.has(n)); }));
@@ -476,7 +482,7 @@
         { rota: "#/pedidos", alvo: '[data-tut="fila"]', titulo: "A fila do Claude", texto: "Numa vaga real, aprovar põe o pedido do kit nesta fila. Nada roda sozinho: você clica em <b>Rodar fila</b> quando quiser, e o Claude faz um pedido de cada vez." },
         { rota: "#/pedidos", alvo: ".barra .direita", titulo: "Rodar fila", texto: "Quando houver pedidos esperando, o botão <b>Rodar fila</b> aparece aqui em cima, com o número. Enquanto o Claude trabalha, ele mostra o tempo; clique para ver o que ele está fazendo." },
         { rota: ex ? `#/vaga/${ex.id}` : "#/candidaturas", alvo: '[data-tut="guia"]', titulo: "O kit de candidatura", texto: "Passo a passo para se candidatar, com os seus dados para copiar, respostas sugeridas (editáveis) e a carta. Marque cada passo quando fizer." },
-        { rota: ex ? `#/vaga/${ex.id}` : "#/candidaturas", alvo: '[data-tut="fase"]', titulo: "Acompanhar o processo", texto: "Depois de enviar, mude a fase quando a empresa responder: triagem, teste, entrevista, proposta. Se você ligou o Gmail, a varredura faz isso por você." },
+        { rota: ex ? `#/vaga/${ex.id}` : "#/candidaturas", alvo: '[data-tut="fase"]', titulo: "Acompanhar o processo", texto: "Clique na fase quando a empresa responder. Teste, case e entrevistas entram como passos do processo, com o dia marcado ou o prazo: eles aparecem em Hoje e nos próximos passos." },
         { rota: "#/varreduras", alvo: '[data-tut="varrer"]', titulo: "Varredura", texto: "Busca vagas novas nas fontes. Ela só roda quando você pede, e o app pergunta ao abrir se já passou um dia." },
         { rota: "#/claude", alvo: '[data-nav="claude"]', titulo: "A aba Claude", texto: "O seu Claude Code, aqui dentro. Converse sobre a busca, peça análises, prepare entrevistas." },
       ];
@@ -571,7 +577,7 @@
     }
     if (a.estado === "pronta" && avisouVersao !== `pronta-${a.versao}`) {
       avisouVersao = `pronta-${a.versao}`;
-      modal({ titulo: "Atualização pronta", corpo: `<p class="frase" style="margin:0">A versão ${esc(a.versao)} foi baixada. O Vagabs reinicia para instalar e volta em seguida.</p>`, botoes: [{ rot: "Depois (instala ao fechar)" }, { rot: "Reiniciar agora", cls: "p", acao: () => api("atualizacao/instalar", { metodo: "POST" }) }] });
+      modal({ titulo: "Atualização pronta", corpo: `<p class="frase" style="margin:0">A versão ${esc(a.versao)} foi baixada. O Vagabs reinicia para instalar e volta em seguida.</p>`, botoes: [{ rot: est.modo === "servidor" ? "Depois" : "Depois (instala ao fechar)" }, { rot: "Reiniciar agora", cls: "p", acao: () => api("atualizacao/instalar", { metodo: "POST" }) }] });
     }
   }
 
@@ -630,7 +636,7 @@
       // o popup de progresso, se aberto, vira o resumo com um atalho para o que mudou
       const c = painelTrab?.isConnected && painelTrab !== painelPrep && painelTrab.querySelector("[data-trab-corpo]");
       if (c) { const h = painelTrab.querySelector(".modal-cab h2"); if (h) h.textContent = f.tipo === "varredura" ? "Varredura terminada" : "Fila terminada";
-        const ir = f.tipo === "varredura" ? ["#/triagem", "Ir para a triagem"] : ["#/pedidos", "Ver os pedidos"]; c.innerHTML = `<p class="frase" style="margin:0">${esc(msg)}</p><a class="btn p" style="margin-top:14px" href="${ir[0]}" data-fechar-trab>${ir[1]} ${ic("seta")}</a>`; c.querySelector("[data-fechar-trab]").addEventListener("click", () => painelTrab.sair()); }
+        const ir = f.tipo === "varredura" ? ["#/triagem", "Ir para a triagem"] : ["#/pedidos", "Ver a fila"]; c.innerHTML = `<p class="frase" style="margin:0">${esc(msg)}</p><a class="btn p" style="margin-top:14px" href="${ir[0]}" data-fechar-trab>${ir[1]} ${ic("seta")}</a>`; c.querySelector("[data-fechar-trab]").addEventListener("click", () => painelTrab.sair()); }
     }
     if (f.tipo === "preparar") {
       if (painelPrep?.isConnected) painelPrep.sair();
